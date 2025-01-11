@@ -9,15 +9,20 @@ and
 
 https://stackoverflow.com/questions/58153024/matplotlib-how-to-create-original-backend
 """
+
 from __future__ import annotations
 
 import base64
 import io
 from typing import Optional
 
-import matplotlib.pyplot as plt  # type: ignore
-from matplotlib.backend_bases import FigureManagerBase, Gcf  # type: ignore
-from matplotlib.backends.backend_agg import FigureCanvasAgg  # type: ignore
+import matplotlib.pyplot as plt
+from matplotlib._pylab_helpers import Gcf
+from matplotlib.backend_bases import (
+    FigureCanvasBase,
+    FigureManagerBase,
+)
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from marimo._messaging.cell_output import CellChannel
 from marimo._messaging.mimetypes import KnownMimeType
@@ -32,10 +37,10 @@ def close_figures() -> None:
         plt.close("all")
 
 
-def _internal_show(canvas: FigureCanvasAgg) -> None:
+def _internal_show(canvas: FigureCanvasBase) -> None:
     buf = io.BytesIO()
     buf.seek(0)
-    canvas.figure.savefig(buf, format="png")
+    canvas.figure.savefig(buf, format="png", bbox_inches="tight")  # type: ignore[attr-defined]
     plt.close(canvas.figure)
     mimetype: KnownMimeType = "image/png"
     plot_bytes = base64.b64encode(buf.getvalue())
@@ -48,7 +53,7 @@ def _internal_show(canvas: FigureCanvasAgg) -> None:
     )
 
 
-class FigureManager(FigureManagerBase):  # type: ignore
+class FigureManager(FigureManagerBase):
     def show(self) -> None:
         _internal_show(self.canvas)
 

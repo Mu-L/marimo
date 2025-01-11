@@ -2,19 +2,19 @@
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getCellNames, useCellActions } from "@/core/cells/cells";
-import { CellId } from "@/core/cells/ids";
+import type { CellId } from "@/core/cells/ids";
 import {
-  DEFAULT_CELL_NAME,
   normalizeName,
   getValidName,
+  isInternalCellName,
 } from "@/core/cells/names";
 import { useOnMount } from "@/hooks/useLifecycle";
 import { cn } from "@/utils/cn";
 import { Events } from "@/utils/events";
 import React, { useRef, useState } from "react";
 
-interface Props {
-  className?: string;
+interface Props
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> {
   value: string;
   onChange: (newName: string) => void;
   placeholder?: string;
@@ -24,6 +24,7 @@ export const NameCellInput: React.FC<Props> = ({
   value,
   onChange,
   placeholder,
+  ...props
 }) => {
   const ref = useRef<HTMLInputElement>(null);
   const inputProps = useCellNameInput(value, onChange);
@@ -45,12 +46,14 @@ export const NameCellInput: React.FC<Props> = ({
 
   return (
     <Input
+      data-testid="cell-name-input"
       value={inputProps.value}
       onChange={inputProps.onChange}
       ref={ref}
       placeholder={placeholder}
       className="shadow-none! hover:shadow-none focus:shadow-none focus-visible:shadow-none"
       onKeyDown={Events.onEnter(Events.stopPropagation())}
+      {...props}
     />
   );
 };
@@ -66,7 +69,7 @@ export const NameCellContentEditable: React.FC<{
   );
 
   // If the name is the default, don't render the content editable
-  if (value === DEFAULT_CELL_NAME) {
+  if (isInternalCellName(value)) {
     return null;
   }
 
@@ -103,7 +106,7 @@ function useCellNameInput(value: string, onChange: (newName: string) => void) {
     }
 
     // Empty
-    if (!newValue || newValue === DEFAULT_CELL_NAME) {
+    if (!newValue || isInternalCellName(newValue)) {
       onChange(newValue);
       return;
     }
@@ -114,7 +117,7 @@ function useCellNameInput(value: string, onChange: (newName: string) => void) {
   };
 
   return {
-    value: internalValue === DEFAULT_CELL_NAME ? "" : internalValue,
+    value: isInternalCellName(internalValue) ? "" : internalValue,
     onChange: (evt: React.ChangeEvent<HTMLInputElement>) => {
       const newValue = evt.target.value;
       const normalized = normalizeName(newValue);

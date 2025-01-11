@@ -15,67 +15,62 @@ result in better code.
 global namespace with
 temporary or intermediate variables, and to avoid code duplication.
 
+**Use [`mo.stop`][marimo.stop] to stop execution.** Use [`mo.stop`][marimo.stop]
+to stop a cell from running when a condition is true; this is helpful
+when working with expensive notebooks. For example, prevent a cell from running
+until a button is clicked using [`mo.ui.run_button`][marimo.ui.run_button] and
+[`mo.stop`][marimo.stop].
+
+!!! caution "Expensive notebooks"
+    For more tips on working with expensive notebooks, see the
+    associated [guide](../guides/expensive_notebooks.md).
+
 **Use Python modules.** If your notebook gets too long, split complex logic
-into helper Python modules and import them into your notebook.
+into helper Python modules and import them into your notebook. Use marimo's
+built-in [module
+reloading](../guides/configuration/runtime_configuration.md#on-module-change)
+to automatically bring changes from your modules into your notebook.
 
 **Minimize mutations.** marimo does not track mutations to objects. Try to
 only mutate an object in the cell that creates it, or create new objects
 instead of mutating existing ones.
 
-:::{dropdown} Example
+??? example "Example"
 
-_Don't_ split up declarations and mutations over multiple cells. For example, _don't
-do this:_
+    _Don't_ split up declarations and mutations over multiple cells. For example, _don't
+    do this:_
 
-```python
-l = [1, 2, 3]
-```
+    ```python
+    l = [1, 2, 3]
+    ```
 
-```python
-l.append(new_item())
-```
+    ```python
+    l.append(new_item())
+    ```
 
-Instead, _do_ **declare and mutate in the same cell**:
+    Instead, _do_ **declare and mutate in the same cell**:
 
-```python
-l = [1, 2, 3]
-...
-l.append(new_item())
-```
+    ```python
+    l = [1, 2, 3]
+    ...
+    l.append(new_item())
+    ```
 
-or, if working in multiple cells, **declare a new variable based on the old
-one**:
+    or, if working in multiple cells, **declare a new variable based on the old
+    one**:
 
-```python
-l = [1, 2, 3]
-```
+    ```python
+    l = [1, 2, 3]
+    ```
 
-```python
-extended_list = l + [new_item()]
-```
-:::
-
-
+    ```python
+    extended_list = l + [new_item()]
+    ```
+**Don't use state and `on_change` handlers.** Don't use `on_change` handlers
+to react to UI interactions. Instead, use marimo's built-in [reactive execution
+for interactive elements](../guides/interactivity.md).
 
 **Write idempotent cells.**
 Write cells whose outputs and behavior are the same
 when given the same inputs (references); such cells are called idempotent. This
 will help you avoid bugs and cache expensive intermediate computations.
-
-**Cache computations with `@functools.cache`.**
-Use Python's builtin `functools` library to cache expensive computations.
-
-For example,
-
-```python
-import functools
-
-@functools.cache
-def compute_predictions(problem_parameters):
-	...
-```
-
-Whenever `compute_predictions` is called with a value of `problem_parameters`
-it has not seen, it will compute the predictions and store them in a cache. The
-next time it is called with the same parameters, instead of recomputing the
-predictions, it will return the previously computed value from the cache.

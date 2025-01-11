@@ -8,17 +8,20 @@ import random
 import string
 import sys
 import threading
-from collections.abc import Iterable
 from typing import TYPE_CHECKING, Optional, cast
 
 from marimo import _loggers
 from marimo._messaging.mimetypes import KnownMimeType
 from marimo._output.utils import build_data_url
 from marimo._runtime.cell_lifecycle_item import CellLifecycleItem
+from marimo._runtime.context import ContextNotInitializedError
+from marimo._server.api.status import HTTPException, HTTPStatus
 from marimo._utils.platform import is_pyodide
 
 if TYPE_CHECKING:
-    from marimo._runtime.context import RuntimeContext
+    from collections.abc import Iterable
+
+    from marimo._runtime.context.types import RuntimeContext
 
 LOGGER = _loggers.marimo_logger()
 
@@ -65,11 +68,9 @@ class VirtualFile:
         if not as_data_url:
             self.url = url or f"./@file/{len(buffer)}-{filename}"
         else:
+            mimetype = mimetypes.guess_type(self.filename)[0] or "text/plain"
             self.url = url or build_data_url(
-                mimetype=cast(
-                    KnownMimeType,
-                    mimetypes.guess_type(self.filename)[0],
-                ),
+                mimetype=cast(KnownMimeType, mimetype),
                 data=base64.b64encode(buffer),
             )
 
@@ -98,18 +99,37 @@ class VirtualFileLifecycleItem(CellLifecycleItem):
         # Not resolved until added to registry
         self._virtual_file: Optional[VirtualFile] = None
 
+    def add_to_cell_lifecycle_registry(self) -> None:
+        from marimo._runtime.context import get_context
+
+        try:
+            ctx = get_context()
+        except ContextNotInitializedError:
+            ctx = None
+
+        if ctx is not None:
+            ctx.cell_lifecycle_registry.add(self)
+        else:
+            self.create(context=None)
+
     @property
     def virtual_file(self) -> VirtualFile:
         assert self._virtual_file is not None
         return self._virtual_file
 
-    def create(self, context: "RuntimeContext") -> None:
+    def create(self, context: "RuntimeContext" | None) -> None:
         """Create the virtual file
 
         Every virtual file gets a unique random name. Uniqueness is
         required for reference counting.
         """
         filename = random_filename(self.ext)
+        if context is None or not context.virtual_files_supported:
+            self._virtual_file = VirtualFile(
+                filename=filename, buffer=self.buffer, as_data_url=True
+            )
+            return
+
         registry = context.virtual_file_registry
         # create a unique filename for the virtual file
         tries = 0
@@ -122,11 +142,7 @@ class VirtualFileLifecycleItem(CellLifecycleItem):
                 "Failed to add virtual file to registry. "
                 "This is a bug in marimo. Please file an issue."
             )
-        self._virtual_file = VirtualFile(
-            filename,
-            self.buffer,
-            as_data_url=not context.virtual_files_supported,
-        )
+        self._virtual_file = VirtualFile(filename, self.buffer)
         context.virtual_file_registry.add(self._virtual_file, context)
 
     def dispose(self, context: "RuntimeContext", deletion: bool) -> bool:
@@ -266,3 +282,30 @@ class VirtualFileRegistry:
 
 def _without_leading_dot(ext: str) -> str:
     return ext[1:] if ext.startswith(".") else ext
+
+
+def read_virtual_file(filename: str, byte_length: int) -> bytes:
+    if not shared_memory:
+        raise RuntimeError("Shared memory is not supported on this platform")
+
+    key = filename
+    shm = None
+    try:
+        # NB: this can't be collapsed into a one-liner!
+        # doing it in one line yields a 'released memoryview ...'
+        # because shared_memory has built in ref-tracking + GC
+        shm = shared_memory.SharedMemory(name=key)
+        buffer_contents = bytes(shm.buf)[: int(byte_length)]
+    except FileNotFoundError as err:
+        LOGGER.debug(
+            "Error retrieving shared memory for virtual file: %s", err
+        )
+        raise HTTPException(
+            HTTPStatus.NOT_FOUND,
+            detail="File not found",
+        ) from err
+    finally:
+        if shm is not None:
+            shm.close()
+
+    return buffer_contents

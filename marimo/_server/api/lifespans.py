@@ -5,15 +5,15 @@ import asyncio
 import contextlib
 import socket
 import sys
-
-if sys.version_info < (3, 9):
-    from typing import AsyncContextManager as AbstractAsyncContextManager
-    from typing import AsyncIterator, Callable, Sequence
-else:
-    from collections.abc import AsyncIterator, Callable, Sequence
-    from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import AbstractAsyncContextManager
 
 from starlette.applications import Starlette
+
+from marimo._server.api.deps import AppState, AppStateBase
+from marimo._server.file_router import AppFileRouter
+from marimo._server.sessions import SessionManager
+from marimo._server.tokens import AuthToken
 
 if sys.version_info < (3, 10):
     from typing_extensions import TypeAlias
@@ -25,7 +25,6 @@ from marimo._server.api.interrupt import InterruptHandler
 from marimo._server.api.utils import open_url_in_browser
 from marimo._server.model import SessionMode
 from marimo._server.print import print_shutdown, print_startup
-from marimo._server.sessions import get_manager
 from marimo._server.utils import initialize_mimetypes
 from marimo._server.uvicorn_utils import close_uvicorn
 
@@ -66,8 +65,9 @@ class Lifespans:
 
 @contextlib.asynccontextmanager
 async def lsp(app: Starlette) -> AsyncIterator[None]:
-    user_config = app.state.config_manager.get_config()
-    session_mgr = get_manager()
+    state = AppState.from_app(app)
+    user_config = state.config_manager.get_config()
+    session_mgr = state.session_manager
     run = session_mgr.mode == SessionMode.RUN
     if not run and user_config["completion"]["copilot"]:
         LOGGER.debug("GitHub Copilot is enabled")
@@ -77,22 +77,19 @@ async def lsp(app: Starlette) -> AsyncIterator[None]:
 
 @contextlib.asynccontextmanager
 async def watcher(app: Starlette) -> AsyncIterator[None]:
-    watch: bool = app.state.watch
-    if watch:
-        session_mgr = get_manager()
+    state = AppState.from_app(app)
+    if state.watch:
+        session_mgr = state.session_manager
         session_mgr.start_file_watcher()
     yield
 
 
 @contextlib.asynccontextmanager
 async def open_browser(app: Starlette) -> AsyncIterator[None]:
-    host = app.state.host
-    port = app.state.port
-    base_url = app.state.base_url
-    url = f"http://{host}:{port}{base_url}"
-    user_config = app.state.config_manager.get_config()
-    headless = app.state.headless
-    if not headless:
+    state = AppState.from_app(app)
+    if not state.headless:
+        url = _startup_url(state)
+        user_config = state.config_manager.get_config()
         browser = user_config["server"]["browser"]
         # Wait 20ms for the server to start and then open the browser, but this
         # function must complete
@@ -104,31 +101,19 @@ async def open_browser(app: Starlette) -> AsyncIterator[None]:
 
 @contextlib.asynccontextmanager
 async def logging(app: Starlette) -> AsyncIterator[None]:
-    manager = get_manager()
-    host = app.state.host
-    port = app.state.port
-    base_url = app.state.base_url
-
-    try:
-        # pretty printing:
-        # if the address maps to localhost, print "localhost" to stdout
-        if (
-            socket.getnameinfo((host, port), socket.NI_NOFQDN)[0]
-            == "localhost"
-        ):
-            host = "localhost"
-    except Exception:
-        # aggressive try/except in case of platform-specific quirks;
-        # nothing to handle, since the `try` logic is just for pretty
-        # printing the host name
-        ...
+    state = AppState.from_app(app)
+    manager: SessionManager = state.session_manager
+    file_router = manager.file_router
 
     # Startup message
     if not manager.quiet:
+        file = file_router.maybe_get_single_file()
         print_startup(
-            manager.filename,
-            f"http://{host}:{port}{base_url}",
-            manager.mode == SessionMode.RUN,
+            file_name=file.name if file else None,
+            url=_startup_url(state),
+            run=manager.mode == SessionMode.RUN,
+            new=file_router.get_unique_file_key() == AppFileRouter.NEW_FILE,
+            network=state.host == "0.0.0.0",
         )
 
     yield
@@ -140,12 +125,14 @@ async def logging(app: Starlette) -> AsyncIterator[None]:
 
 @contextlib.asynccontextmanager
 async def signal_handler(app: Starlette) -> AsyncIterator[None]:
-    manager = get_manager()
+    state = AppState.from_app(app)
+    manager = state.session_manager
 
     # Interrupt handler
     def shutdown() -> None:
         manager.shutdown()
-        close_uvicorn(app.state.server)
+        if state.server:
+            close_uvicorn(state.server)
 
     InterruptHandler(
         quiet=manager.quiet,
@@ -162,13 +149,29 @@ async def etc(app: Starlette) -> AsyncIterator[None]:
     yield
 
 
-LIFESPANS = Lifespans(
-    [
-        lsp,
-        watcher,
-        etc,
-        signal_handler,
-        logging,
-        open_browser,
-    ]
-)
+def _startup_url(state: AppStateBase) -> str:
+    host = state.host
+    port = state.port
+    try:
+        # pretty printing:
+        # if the address maps to localhost, print "localhost" to stdout
+        if (
+            socket.getnameinfo((host, port), socket.NI_NOFQDN)[0]
+            == "localhost"
+        ):
+            host = "localhost"
+    except Exception:
+        # aggressive try/except in case of platform-specific quirks;
+        # nothing to handle, since the `try` logic is just for pretty
+        # printing the host name
+        ...
+
+    url = f"http://{host}:{port}{state.base_url}"
+    if port == 80:
+        url = f"http://{host}{state.base_url}"
+    elif port == 443:
+        url = f"https://{host}{state.base_url}"
+
+    if AuthToken.is_empty(state.session_manager.auth_token):
+        return url
+    return f"{url}?access_token={str(state.session_manager.auth_token)}"

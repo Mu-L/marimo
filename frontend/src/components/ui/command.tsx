@@ -1,17 +1,19 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import * as React from "react";
-import { DialogProps } from "@radix-ui/react-dialog";
+import type { DialogProps } from "@radix-ui/react-dialog";
 import { Command as CommandPrimitive } from "cmdk";
 import { Search } from "lucide-react";
 
 import { cn } from "@/utils/cn";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import {
+  MENU_ITEM_DISABLED,
   MenuShortcut,
   menuItemVariants,
   menuSeparatorVariants,
 } from "./menu-items";
-import { VariantProps } from "class-variance-authority";
+import { Strings } from "@/utils/strings";
+import type { VariantProps } from "class-variance-authority";
 
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
@@ -49,14 +51,17 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input> & {
     rootClassName?: string;
+    icon?: React.ReactNode | null;
   }
->(({ className, rootClassName, ...props }, ref) => (
+>(({ className, icon, rootClassName, ...props }, ref) => (
   <div
     className={cn("flex items-center border-b px-3", rootClassName)}
     // eslint-disable-next-line react/no-unknown-property
     cmdk-input-wrapper=""
   >
-    <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+    {icon === null ? null : (
+      <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+    )}
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
@@ -131,8 +136,15 @@ const CommandItem = React.forwardRef<
 >(({ className, variant, inset, ...props }, ref) => (
   <CommandPrimitive.Item
     ref={ref}
-    className={menuItemVariants({ className, variant, inset })}
+    className={cn(
+      menuItemVariants({ variant, inset }).replace(
+        MENU_ITEM_DISABLED,
+        "data-[disabled=false]:pointer-events-all data-[disabled=false]:opacity-100 data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
+      ),
+      className,
+    )}
     {...props}
+    value={Strings.htmlEscape(props.value)}
   />
 ));
 

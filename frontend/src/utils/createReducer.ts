@@ -1,8 +1,10 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Logger } from "@/utils/Logger";
-import { NoInfer } from "@tanstack/react-table";
-import { Reducer } from "react";
+import { atom, useSetAtom } from "jotai";
+import type { Reducer } from "react";
+
+export type NoInfer<T> = [T][T extends any ? 0 : never];
 
 interface ReducerAction<T> {
   type: string;
@@ -15,7 +17,7 @@ type IfUnknown<T, Y, N> = unknown extends T ? Y : N;
 type ReducerHandler<State, Payload> = (state: State, payload: Payload) => State;
 
 interface ReducerHandlers<State> {
-  [K: string]: ReducerHandler<State, any>;
+  [k: string]: ReducerHandler<State, any>;
 }
 
 type ReducerActions<RH extends ReducerHandlers<any>> = {
@@ -50,9 +52,9 @@ export function createReducer<
       state = state || initialState();
       if (action.type in reducers) {
         return reducers[action.type](state, action.payload);
-      } else {
-        Logger.error(`Action type ${action.type} is not defined in reducers.`);
       }
+
+      Logger.error(`Action type ${action.type} is not defined in reducers.`);
       return state;
     },
     createActions: (dispatch: Dispatch) => {
@@ -64,5 +66,59 @@ export function createReducer<
       }
       return actions;
     },
+  };
+}
+
+type Middleware<State> = (
+  prevState: State,
+  newState: State,
+  action: ReducerAction<any>,
+) => void;
+
+export function createReducerAndAtoms<
+  State,
+  RH extends ReducerHandlers<NoInfer<State>>,
+>(
+  initialState: () => State,
+  reducers: RH,
+  middleware?: Array<Middleware<State>>,
+) {
+  const { reducer, createActions } = createReducer(initialState, reducers);
+
+  const reducerWithMiddleware = (state: State, action: ReducerAction<any>) => {
+    const newState = reducer(state, action);
+    if (middleware) {
+      for (const mw of middleware) {
+        mw(state, newState, action);
+      }
+    }
+    return newState;
+  };
+
+  const valueAtom = atom(initialState());
+  // map of SetAtom => Actions
+  const actionsMap = new WeakMap();
+
+  function useActions() {
+    const setState = useSetAtom(valueAtom);
+
+    if (!actionsMap.has(setState)) {
+      actionsMap.set(
+        setState,
+        createActions((action) => {
+          setState((state) => reducerWithMiddleware(state, action));
+        }),
+      );
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    return actionsMap.get(setState)!;
+  }
+
+  return {
+    reducer: reducerWithMiddleware,
+    createActions,
+    valueAtom,
+    useActions,
   };
 }

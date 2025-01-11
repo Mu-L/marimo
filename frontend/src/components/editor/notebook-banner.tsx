@@ -3,11 +3,17 @@ import { useBanners, useBannersActions } from "@/core/errors/state";
 import { renderHTML } from "@/plugins/core/RenderHTML";
 import { Banner } from "@/plugins/impl/common/error-banner";
 import { AlertCircleIcon, RotateCcwIcon, XIcon } from "lucide-react";
-import React from "react";
+import type React from "react";
 import { Button } from "../ui/button";
 import { useRestartKernel } from "./actions/useRestartKernel";
+import type { AppConfig } from "@/core/config/config-schema";
+import { cn } from "@/utils/cn";
 
-export const NotebookBanner: React.FC = (props) => {
+interface Props {
+  width: AppConfig["width"];
+}
+
+export const NotebookBanner: React.FC<Props> = ({ width }) => {
   const { banners } = useBanners();
   const { removeBanner } = useBannersActions();
 
@@ -16,7 +22,12 @@ export const NotebookBanner: React.FC = (props) => {
   }
 
   return (
-    <div className="flex flex-col gap-4 mb-5">
+    <div
+      className={cn(
+        "flex flex-col gap-4 mb-5 print:hidden",
+        width === "columns" && "sticky left-12 w-full max-w-[80vw]",
+      )}
+    >
       {banners.map((banner) => (
         <Banner
           kind={banner.variant || "info"}
@@ -29,6 +40,7 @@ export const NotebookBanner: React.FC = (props) => {
               {banner.title}
             </span>
             <Button
+              data-testid="remove-banner-button"
               variant="text"
               size="icon"
               onClick={() => removeBanner(banner.id)}
@@ -49,8 +61,13 @@ export const NotebookBanner: React.FC = (props) => {
 const RestartSessionButton = () => {
   const restartKernel = useRestartKernel();
   return (
-    <Button variant="link" size="sm" onClick={restartKernel}>
-      <RotateCcwIcon className="w-4 h-4 mr-2" />
+    <Button
+      data-testid="restart-session-button"
+      variant="link"
+      size="xs"
+      onClick={restartKernel}
+    >
+      <RotateCcwIcon className="w-3 h-3 mr-2" />
       Restart
     </Button>
   );

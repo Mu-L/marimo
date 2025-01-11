@@ -4,9 +4,10 @@ import { languageServerWithTransport } from "codemirror-languageserver";
 import { CopilotLanguageServerClient } from "./language-server";
 import { WebSocketTransport } from "@open-rpc/client-js";
 import { Transport } from "@open-rpc/client-js/build/transports/Transport";
-import { JSONRPCRequestData } from "@open-rpc/client-js/build/Request";
+import type { JSONRPCRequestData } from "@open-rpc/client-js/build/Request";
 import { waitForEnabledCopilot } from "./state";
 import { waitForWs } from "@/utils/waitForWs";
+import { resolveToWsUrl } from "@/core/websocket/createWsUrl";
 
 // Dummy file for the copilot language server
 export const COPILOT_FILENAME = "/marimo.py";
@@ -79,13 +80,6 @@ export function copilotServer() {
   });
 }
 
-const DEVELOPMENT_WS_PORT = 27_180;
 export function createWsUrl(): string {
-  // TODO: this should be configurable, but instead we add a 0 and hope it is free
-  const LSP_PORT =
-    process.env.NODE_ENV === "development"
-      ? DEVELOPMENT_WS_PORT
-      : window.location.port + 0;
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${window.location.hostname}:${LSP_PORT}/copilot`;
+  return resolveToWsUrl("lsp/copilot");
 }

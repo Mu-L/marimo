@@ -1,7 +1,7 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import * as React from "react";
 import * as ToastPrimitives from "@radix-ui/react-toast";
-import { VariantProps, cva } from "class-variance-authority";
+import { type VariantProps, cva } from "class-variance-authority";
 import { X } from "lucide-react";
 
 import { cn } from "@/utils/cn";
@@ -15,7 +15,7 @@ const ToastViewport = React.forwardRef<
   <ToastPrimitives.Viewport
     ref={ref}
     className={cn(
-      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
+      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:w-fit md:max-w-[420px]",
       className,
     )}
     {...props}
@@ -30,7 +30,7 @@ const toastVariants = cva(
       variant: {
         default: "bg-background border",
         danger:
-          "group destructive text-error border-destructive bg-[var(--red-1)] shadow-smError",
+          "group destructive text-error border-destructive bg-[var(--red-1)] shadow-mdSolid shadow-error",
       },
     },
     defaultVariants: {
@@ -47,7 +47,11 @@ const Toast = React.forwardRef<
   return (
     <ToastPrimitives.Root
       ref={ref}
-      className={cn(toastVariants({ variant }), className)}
+      className={cn(
+        toastVariants({ variant: variant || "default" }),
+        "print:hidden",
+        className,
+      )}
       {...props}
     />
   );

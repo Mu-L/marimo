@@ -13,12 +13,14 @@ import {
 import { cn } from "@/utils/cn";
 import React from "react";
 import { Check, ChevronRight, Circle } from "lucide-react";
-import { VariantProps } from "class-variance-authority";
+import type { VariantProps } from "class-variance-authority";
+import { withFullScreenAsRoot } from "./fullscreen";
+import { StyleNamespace } from "@/theme/namespace";
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 const DropdownMenuGroup = DropdownMenuPrimitive.Group;
-const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
+const DropdownMenuPortal = withFullScreenAsRoot(DropdownMenuPrimitive.Portal);
 const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 
@@ -61,18 +63,20 @@ const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
 >(({ className, sideOffset = 4, ...props }, ref) => (
-  <DropdownMenuPrimitive.Portal>
-    <DropdownMenuPrimitive.Content
-      ref={ref}
-      sideOffset={sideOffset}
-      className={cn(
-        menuContentCommon(),
-        "animate-in data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-        className,
-      )}
-      {...props}
-    />
-  </DropdownMenuPrimitive.Portal>
+  <DropdownMenuPortal>
+    <StyleNamespace>
+      <DropdownMenuPrimitive.Content
+        ref={ref}
+        sideOffset={sideOffset}
+        className={cn(
+          menuContentCommon(),
+          "animate-in data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+          className,
+        )}
+        {...props}
+      />
+    </StyleNamespace>
+  </DropdownMenuPortal>
 ));
 DropdownMenuContent.displayName = DropdownMenuPrimitive.Content.displayName;
 

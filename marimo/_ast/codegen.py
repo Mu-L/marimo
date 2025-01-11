@@ -6,14 +6,17 @@ import builtins
 import importlib.util
 import json
 import os
-from collections.abc import Sequence
-from typing import Any, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, List, Optional, Union, cast
 
 from marimo import __version__
 from marimo._ast.app import App, _AppConfig
 from marimo._ast.cell import CellConfig, CellImpl
 from marimo._ast.compiler import compile_cell
+from marimo._ast.names import DEFAULT_CELL_NAME
 from marimo._ast.visitor import Name
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 INDENT = "    "
 MAX_LINE_LENGTH = 80
@@ -42,6 +45,8 @@ def _to_decorator(config: Optional[CellConfig]) -> str:
         del config.disabled
     if not config.hide_code:
         del config.hide_code
+    if not isinstance(config.column, int):
+        del config.column
 
     if config == CellConfig():
         return "@app.cell"
@@ -69,11 +74,11 @@ def to_functiondef(
 
     decorator = _to_decorator(cell.config)
     signature = f"def {name}({args}):"
-    if cell.is_coroutine():
-        signature = "async " + signature
-
-    if len(INDENT + signature) >= MAX_LINE_LENGTH:
+    prefix = "" if not cell.is_coroutine() else "async "
+    if len(INDENT + prefix + signature) >= MAX_LINE_LENGTH:
         signature = f"def {name}{_multiline_tuple(refs)}:"
+    signature = prefix + signature
+
     fndef = decorator + "\n" + signature + "\n"
     body = indent_text(cell.code)
     if body:
@@ -83,7 +88,7 @@ def to_functiondef(
         defs = tuple(name for name in sorted(cell.defs))
         returns = INDENT + "return "
         if len(cell.defs) == 1:
-            returns += f"{defs[0]},"
+            returns += f"({defs[0]},)"
         else:
             returns += ", ".join(defs)
         fndef += (
@@ -122,7 +127,9 @@ def generate_unparsable_cell(
 def generate_app_constructor(config: Optional[_AppConfig]) -> str:
     def _format_arg(arg: Any) -> str:
         if isinstance(arg, str):
-            return f'"{arg}"'
+            return f'"{arg}"'.replace("\\", "\\\\")
+        elif isinstance(arg, list):
+            return "[" + ", ".join([_format_arg(item) for item in arg]) + "]"
         else:
             return str(arg)
 
@@ -148,6 +155,7 @@ def generate_filecontents(
     names: list[str],
     cell_configs: list[CellConfig],
     config: Optional[_AppConfig] = None,
+    header_comments: Optional[str] = None,
 ) -> str:
     """Translates a sequences of codes (cells) to a Python file"""
     cell_data: list[Union[CellImpl, tuple[str, CellConfig]]] = []
@@ -167,6 +175,12 @@ def generate_filecontents(
 
     unshadowed_builtins = set(builtins.__dict__.keys()) - defs
     fndefs: list[str] = []
+
+    # Update old internal cell names to the new ones
+    for idx, name in enumerate(names):
+        if name == "__":
+            names[idx] = DEFAULT_CELL_NAME
+
     for data, name in zip(cell_data, names):
         if isinstance(data, CellImpl):
             fndefs.append(to_functiondef(data, name, unshadowed_builtins))
@@ -191,6 +205,8 @@ def generate_filecontents(
         + indent_text("app.run()")
     )
 
+    if header_comments:
+        filecontents = header_comments.rstrip() + "\n\n" + filecontents
     return filecontents + "\n"
 
 
@@ -207,6 +223,22 @@ def get_app(filename: Optional[str]) -> Optional[App]:
         contents = f.read().strip()
 
     if not contents:
+        return None
+
+    if filename.endswith(".md"):
+        from marimo._cli.convert.markdown import convert_from_md_to_app
+
+        return convert_from_md_to_app(contents)
+
+    # Below assumes it's a Python file
+
+    # This means it could have only the package dependencies
+    # but no actual code yet.
+    has_only_comments = all(
+        not line.strip() or line.strip().startswith("#")
+        for line in contents.splitlines()
+    )
+    if has_only_comments:
         return None
 
     spec = importlib.util.spec_from_file_location("marimo_app", filename)

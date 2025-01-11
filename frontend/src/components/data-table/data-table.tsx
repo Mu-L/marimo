@@ -1,135 +1,187 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React from "react";
+"use no memo";
+// tanstack/table is not compatible with React compiler
+// https://github.com/TanStack/table/issues/5567
+
+import React, { memo } from "react";
 import {
-  ColumnDef,
-  OnChangeFn,
-  PaginationState,
-  RowSelectionState,
-  SortingState,
-  flexRender,
+  type ColumnDef,
+  type ColumnFiltersState,
+  ColumnPinning,
   getCoreRowModel,
+  getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  type OnChangeFn,
+  type PaginationState,
+  type RowSelectionState,
+  type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
 
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { DataTablePagination } from "./pagination";
-import { DownloadActionProps, DownloadAs } from "./download-actions";
+import { Table } from "@/components/ui/table";
+import type { DownloadActionProps } from "./download-actions";
 import { cn } from "@/utils/cn";
+import { FilterPills } from "./filter-pills";
+import { useColumnPinning } from "./hooks/useColumnPinning";
+import { renderTableHeader, renderTableBody } from "./renderers";
+import { SearchBar } from "./SearchBar";
+import { TableActions } from "./TableActions";
+import { ColumnFormattingFeature } from "./column-formatting/feature";
+import { ColumnWrappingFeature } from "./column-wrapping/feature";
 
-interface DataTableProps<TData, TValue> extends Partial<DownloadActionProps> {
+interface DataTableProps<TData> extends Partial<DownloadActionProps> {
   wrapperClassName?: string;
   className?: string;
-  columns: Array<ColumnDef<TData, TValue>>;
+  columns: Array<ColumnDef<TData>>;
   data: TData[];
+  // Sorting
+  manualSorting?: boolean; // server-side sorting
+  sorting?: SortingState; // controlled sorting
+  setSorting?: OnChangeFn<SortingState>; // controlled sorting
+  // Pagination
+  totalRows: number | "too_many";
+  totalColumns: number;
   pagination?: boolean;
-  pageSize?: number;
+  manualPagination?: boolean; // server-side pagination
+  paginationState?: PaginationState; // controlled pagination
+  setPaginationState?: OnChangeFn<PaginationState>; // controlled pagination
+  // Selection
   selection?: "single" | "multi" | null;
   rowSelection?: RowSelectionState;
   onRowSelectionChange?: OnChangeFn<RowSelectionState>;
+  // Search
+  enableSearch?: boolean;
+  searchQuery?: string;
+  onSearchQueryChange?: (query: string) => void;
+  showFilters?: boolean;
+  filters?: ColumnFiltersState;
+  onFiltersChange?: OnChangeFn<ColumnFiltersState>;
+  reloading?: boolean;
+  // Columns
+  freezeColumnsLeft?: string[];
+  freezeColumnsRight?: string[];
 }
 
-export const DataTable = <TData, TValue>({
+const DataTableInternal = <TData,>({
   wrapperClassName,
   className,
   columns,
   data,
+  selection,
+  totalColumns,
+  totalRows,
+  manualSorting = false,
+  sorting,
+  setSorting,
   rowSelection,
-  pageSize = 10,
+  paginationState,
+  setPaginationState,
   downloadAs,
+  manualPagination = false,
   pagination = false,
   onRowSelectionChange,
-}: DataTableProps<TData, TValue>) => {
-  const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [paginationState, setPaginationState] = React.useState<PaginationState>(
-    { pageSize: pageSize, pageIndex: 0 },
+  enableSearch = false,
+  searchQuery,
+  onSearchQueryChange,
+  showFilters = false,
+  filters,
+  onFiltersChange,
+  reloading,
+  freezeColumnsLeft,
+  freezeColumnsRight,
+}: DataTableProps<TData>) => {
+  const [isSearchEnabled, setIsSearchEnabled] = React.useState<boolean>(false);
+
+  const { columnPinning, setColumnPinning } = useColumnPinning(
+    freezeColumnsLeft,
+    freezeColumnsRight,
   );
 
-  const table = useReactTable({
+  const table = useReactTable<TData>({
+    _features: [ColumnPinning, ColumnWrappingFeature, ColumnFormattingFeature],
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
     // pagination
-    onPaginationChange: setPaginationState,
-    getPaginationRowModel: pagination ? getPaginationRowModel() : undefined,
+    rowCount: totalRows === "too_many" ? undefined : totalRows,
+    ...(setPaginationState
+      ? {
+          onPaginationChange: setPaginationState,
+          getRowId: (_row, idx) => {
+            if (!paginationState) {
+              return String(idx);
+            }
+            // Add offset if manualPagination is enabled
+            const offset = manualPagination
+              ? paginationState.pageIndex * paginationState.pageSize
+              : 0;
+            return String(idx + offset);
+          },
+        }
+      : {}),
+    manualPagination: manualPagination,
+    getPaginationRowModel: getPaginationRowModel(),
     // sorting
-    onSortingChange: setSorting,
+    ...(setSorting ? { onSortingChange: setSorting } : {}),
+    manualSorting: manualSorting,
     getSortedRowModel: getSortedRowModel(),
+    // filtering
+    manualFiltering: true,
+    enableColumnFilters: showFilters,
+    getFilteredRowModel: getFilteredRowModel(),
+    onColumnFiltersChange: onFiltersChange,
     // selection
     onRowSelectionChange: onRowSelectionChange,
     state: {
-      sorting,
-      pagination: pagination
-        ? { ...paginationState, pageSize: pageSize }
-        : { pageIndex: 0, pageSize: data.length },
+      ...(sorting ? { sorting } : {}),
+      columnFilters: filters,
+      ...// Controlled state
+      (paginationState
+        ? { pagination: paginationState }
+        : // Uncontrolled state
+          pagination && !paginationState
+          ? {}
+          : // No pagination, show all rows
+            { pagination: { pageIndex: 0, pageSize: data.length } }),
       rowSelection,
+      columnPinning: columnPinning,
     },
+    onColumnPinningChange: setColumnPinning,
   });
 
   return (
-    <div className={cn(wrapperClassName, "flex flex-col space-y-2")}>
-      <div className={cn(className || "rounded-md border")}>
+    <div className={cn(wrapperClassName, "flex flex-col space-y-1")}>
+      <FilterPills filters={filters} table={table} />
+      <div className={cn(className || "rounded-md border overflow-hidden")}>
+        {onSearchQueryChange && enableSearch && (
+          <SearchBar
+            value={searchQuery || ""}
+            onHide={() => setIsSearchEnabled(false)}
+            handleSearch={onSearchQueryChange}
+            hidden={!isSearchEnabled}
+            reloading={reloading}
+          />
+        )}
         <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  return (
-                    <TableHead key={header.id}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(
-                            header.column.columnDef.header,
-                            header.getContext(),
-                          )}
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center"
-                >
-                  No results.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
+          {renderTableHeader(table)}
+          {renderTableBody(table, columns)}
         </Table>
       </div>
-      <div className="flex align-items justify-between flex-shrink-0">
-        {pagination ? <DataTablePagination table={table} /> : <div />}
-        {downloadAs && <DownloadAs downloadAs={downloadAs} />}
-      </div>
+      <TableActions
+        enableSearch={enableSearch}
+        totalColumns={totalColumns}
+        onSearchQueryChange={onSearchQueryChange}
+        isSearchEnabled={isSearchEnabled}
+        setIsSearchEnabled={setIsSearchEnabled}
+        pagination={pagination}
+        selection={selection}
+        onRowSelectionChange={onRowSelectionChange}
+        table={table}
+        downloadAs={downloadAs}
+      />
     </div>
   );
 };
+
+export const DataTable = memo(DataTableInternal) as typeof DataTableInternal;

@@ -1,5 +1,5 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { IReconnectingWebSocket } from "./types";
+import type { IReconnectingWebSocket } from "./types";
 
 export class StaticWebsocket implements IReconnectingWebSocket {
   CONNECTING = WebSocket.CONNECTING;
@@ -39,7 +39,7 @@ export class StaticWebsocket implements IReconnectingWebSocket {
   reconnect(code?: number | undefined, reason?: string | undefined): void {
     // Noop
   }
-  send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+  send(data: string | ArrayBuffer | Blob | ArrayBufferView) {
     // Noop
   }
   close() {

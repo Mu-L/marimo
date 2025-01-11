@@ -1,21 +1,21 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import React, {
-  PropsWithChildren,
+  type PropsWithChildren,
   memo,
   useEffect,
   useMemo,
   useState,
 } from "react";
 import { Responsive, WidthProvider } from "react-grid-layout";
-import { ICellRendererProps } from "../types";
-import { GridLayout, GridLayoutCellSide } from "./types";
+import type { ICellRendererProps } from "../types";
+import type { GridLayout, GridLayoutCellSide } from "./types";
 import { OutputArea } from "@/components/editor/Output";
-import { CellRuntimeState } from "@/core/cells/types";
+import type { CellRuntimeState } from "@/core/cells/types";
 
 import "react-grid-layout/css/styles.css";
 import "./styles.css";
-import { CellId } from "@/core/cells/ids";
-import { AppMode } from "@/core/mode";
+import type { CellId } from "@/core/cells/ids";
+import type { AppMode } from "@/core/mode";
 import { TinyCode } from "@/components/editor/cell/TinyCode";
 import { cn } from "@/utils/cn";
 import {
@@ -28,7 +28,6 @@ import {
   ScrollIcon,
   XIcon,
 } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useIsDragging } from "@/hooks/useIsDragging";
 import { Switch } from "@/components/ui/switch";
@@ -42,6 +41,7 @@ import { Objects } from "@/utils/objects";
 import { Maps } from "@/utils/maps";
 import { startCase } from "lodash-es";
 import { BorderAllIcon } from "@radix-ui/react-icons";
+import { NumberField } from "@/components/ui/number-field";
 
 type Props = ICellRendererProps<GridLayout>;
 
@@ -130,11 +130,10 @@ export const GridLayoutRenderer: React.FC<Props> = ({
   if (enableInteractions) {
     styles.backgroundImage =
       "repeating-linear-gradient(var(--gray-4) 0 1px, transparent 1px 100%), repeating-linear-gradient(90deg, var(--gray-4) 0 1px, transparent 1px 100%)";
-
     styles.backgroundSize = `calc((100% / ${layout.columns})) ${layout.rowHeight}px`;
   }
 
-  const grid = (
+  let grid = (
     <ReactGridLayout
       breakpoint="lg"
       layouts={{
@@ -148,13 +147,11 @@ export const GridLayoutRenderer: React.FC<Props> = ({
         // Show grid border and background when editing
         enableInteractions && "bg-[var(--slate-2)] border-r",
         // Disable animations and add padding when reading
-        isReading && "disable-animation px-4 ",
-        // Add border styles
-        layout.bordered && "border-t border-x rounded-t shadow-sm",
-        // Add additional padding if bordered when reading
-        layout.bordered && isReading && "pt-4 w-[calc(100%-2rem)]",
+        isReading && "disable-animation",
         !layout.maxWidth && "min-w-[800px]",
       )}
+      // Add additional padding if bordered when reading
+      containerPadding={isReading ? [20, 20] : undefined}
       margin={MARGIN}
       isBounded={false}
       compactType={null}
@@ -252,10 +249,33 @@ export const GridLayoutRenderer: React.FC<Props> = ({
   );
 
   if (isReading) {
+    if (layout.bordered) {
+      grid = (
+        <div className="flex flex-1 flex-col items-center">
+          <div
+            style={styles}
+            className="bg-background flex-1 border-t border-x rounded-t shadow-sm w-full overflow-hidden"
+          >
+            {grid}
+          </div>
+        </div>
+      );
+    }
     return grid;
   }
 
   const notInGrid = cells.filter((cell) => !inGridIds.has(cell.id));
+
+  if (layout.bordered) {
+    grid = (
+      <div
+        style={styles}
+        className="bg-background border-t border-x rounded-t shadow-sm w-full mx-auto mt-4 h-[calc(100%-1rem)] overflow-hidden"
+      >
+        <div className="h-full overflow-auto">{grid}</div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -265,7 +285,7 @@ export const GridLayoutRenderer: React.FC<Props> = ({
         isLocked={isLocked}
         setIsLocked={setIsLocked}
       />
-      <div className={cn("relative flex gap-2 px-2 z-10 flex-1")}>
+      <div className={cn("relative flex z-10 flex-1 overflow-hidden")}>
         <div
           className={cn(
             "flex-grow overflow-auto transparent-when-disconnected",
@@ -273,7 +293,7 @@ export const GridLayoutRenderer: React.FC<Props> = ({
         >
           {grid}
         </div>
-        <div className="flex-none flex flex-col w-[300px] p-2 gap-2 overflow-auto h-full bg-[var(--slate-2)] border-t border-x rounded-t shadow-sm transparent-when-disconnected">
+        <div className="flex-none flex flex-col w-[300px] p-2 pb-20 gap-2 overflow-auto bg-[var(--slate-2)] border-t border-x rounded-t shadow-sm transparent-when-disconnected mx-2 mt-4">
           <div className="text font-bold text-[var(--slate-20)] flex-shrink-0">
             Outputs
           </div>
@@ -382,54 +402,54 @@ const GridControls: React.FC<{
   setIsLocked: (isLocked: boolean) => void;
 }> = ({ layout, setLayout, isLocked, setIsLocked }) => {
   return (
-    <div className="flex flex-row absolute left-5 top-4 gap-4 w-full justify-end pr-[350px]">
+    <div className="flex flex-row absolute pl-5 top-8 gap-4 w-full justify-end pr-[350px] pb-3 border-b z-50">
       <div className="flex flex-row items-center gap-2">
         <Label htmlFor="columns">Columns</Label>
-        <Input
+        <NumberField
+          data-testid="grid-columns-input"
           id="columns"
-          type="number"
           value={layout.columns}
           className="w-[60px]"
           placeholder="# of Columns"
-          min={1}
-          onChange={(e) => {
+          minValue={1}
+          onChange={(valueAsNumber) => {
             setLayout({
               ...layout,
-              columns: e.target.valueAsNumber,
+              columns: valueAsNumber,
             });
           }}
         />
       </div>
       <div className="flex flex-row items-center gap-2">
         <Label htmlFor="rowHeight">Row Height (px)</Label>
-        <Input
+        <NumberField
+          data-testid="grid-row-height-input"
           id="rowHeight"
-          type="number"
           value={layout.rowHeight}
           className="w-[60px]"
           placeholder="Row Height (px)"
-          min={1}
-          onChange={(e) => {
+          minValue={1}
+          onChange={(valueAsNumber) => {
             setLayout({
               ...layout,
-              rowHeight: e.target.valueAsNumber,
+              rowHeight: valueAsNumber,
             });
           }}
         />
       </div>
       <div className="flex flex-row items-center gap-2">
         <Label htmlFor="maxWidth">Max Width (px)</Label>
-        <Input
+        <NumberField
+          data-testid="grid-max-width-input"
           id="maxWidth"
-          type="number"
           value={layout.maxWidth}
-          className="w-[70px]"
+          className="w-[90px]"
           step={100}
           placeholder="Full"
-          onChange={(e) => {
+          onChange={(valueAsNumber) => {
             setLayout({
               ...layout,
-              maxWidth: e.target.value ? e.target.valueAsNumber : undefined,
+              maxWidth: Number.isNaN(valueAsNumber) ? undefined : valueAsNumber,
             });
           }}
         />
@@ -440,6 +460,7 @@ const GridControls: React.FC<{
           Bordered
         </Label>
         <Switch
+          data-testid="grid-bordered-switch"
           id="lock"
           checked={layout.bordered}
           size="sm"
@@ -457,6 +478,7 @@ const GridControls: React.FC<{
           Lock Grid
         </Label>
         <Switch
+          data-testid="grid-lock-switch"
           id="lock"
           checked={isLocked}
           size="sm"
@@ -604,6 +626,7 @@ const GridHoverActions: React.FC<GridHoverActionsProps> = ({
           <DropdownMenuItem onSelect={() => setIsScrollable(!isScrollable)}>
             <span className="flex-1">Scrollable</span>
             <Switch
+              data-testid="grid-scrollable-switch"
               checked={isScrollable}
               size="sm"
               onCheckedChange={setIsScrollable}

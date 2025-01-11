@@ -16,34 +16,102 @@ Before sending a pull request, make sure to do the following:
 _Please reach out to the marimo team before starting work on a large
 contribution._ Get in touch at
 [GitHub issues](https://github.com/marimo-team/marimo/issues)
-or [on Discord](https://discord.gg/JE7nhX6mD8).
+or [on Discord](https://marimo.io/discord?ref=contributing).
+
+## Prerequisites
+
+To build marimo from source, you'll need to have Node.js, pnpm, GNU make, Python (>=3.9), and Hatch installed.
+
+- Install [Node.js](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm#using-a-node-version-manager-to-install-nodejs-and-npm) >= 18
+  - We use Node.js version 20
+- Install [pnpm](https://github.com/pnpm/pnpm) == 9.x
+  - `npm install -g pnpm@9`
+- Install [GNU Make](https://www.gnu.org/software/make/) (you may already have it installed)
+- Install [Python](https://www.python.org/) >= 3.9. (You may already it installed. To see your version, use `python -V` at the command line.)
+- Install [Hatch](https://hatch.pypa.io/latest/install/). Some installation options:
+  - `brew install hatch`
+  - `pipx install hatch`
+
+And you'll need [pre-commit](https://pre-commit.com/) to run some validation checks:
+
+```bash
+pipx install pre-commit
+# or `pip install pre-commit` if you have a virtualenv
+# or `brew install pre-commit`
+```
+
+You can optionally install pre-commit hooks to automatically run the validation checks
+when making a commit:
+
+```bash
+pre-commit install
+```
+
+> [!NOTE]
+>
+> As an alternative to building from source, you can try developing
+> [in Gitpod](https://gitpod.io/#https://github.com/marimo-team/marimo).
+> Note that developing in Gitpod is not officially supported by the marimo
+> team.
 
 ## Building from source
 
-You'll need to build marimo from source to edit and test code.
+Be sure to install the dependencies above before building from source.
 
-**Build dependencies.**
-To build marimo from source, you'll need to have Node.js, pnpm, GNU make, and
-Python (>=3.8) installed.
+### Build from source
 
-- Install [Node.js](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm#using-a-node-version-manager-to-install-nodejs-and-npm)
-- Install [pnpm](https://github.com/pnpm/pnpm) with `npm install -g pnpm`
-- Install [GNU Make](https://www.gnu.org/software/make/) (you may already have it installed)
-- Install [Python](https://www.python.org/). (You may already it installed. To see your version, use
-  `python -v` at the command line.)
+After installing the dependencies, you can use either the traditional method (installing an editable wheel in your current venv) or use Hatch:
 
-**Build from source.**
-After installing the dependencies, run the following in a fresh Python virtual
-environment (such as [venv](https://docs.python.org/3/library/venv.html) or
-[virtualenv](https://virtualenv.pypa.io/en/latest/)):
+Traditional method:
 
 ```bash
 make fe && make py
 ```
 
-`make fe` builds the frontend. `make py` does an [editable install](https://setuptools.pypa.io/en/latest/userguide/development_mode.html) of marimo.
+Using Hatch:
+
+```bash
+make fe
+hatch shell
+```
+
+`make fe` builds the frontend. `make py` does an [editable install](https://setuptools.pypa.io/en/latest/userguide/development_mode.html) of marimo, while `hatch shell` creates a Hatch environment with an editable install of marimo.
 
 (All `make` commands should be run in the project's root directory.)
+
+### Building from source, unminified
+
+To build the frontend unminified, run:
+
+```bash
+NODE_OPTIONS=--max_old_space_size=8192 NODE_ENV=development make fe -B
+```
+
+## `make` commands
+
+| Command        | Category  | Description                                                    |
+| -------------- | --------- | -------------------------------------------------------------- |
+| `help`         | General   | Show this help                                                 |
+| `py`           | Setup     | Editable python install; only need to run once                 |
+| `install-all`  | Setup     | Install everything; takes a long time due to editable install  |
+| `fe`           | Build     | Package frontend into `marimo/`                                |
+| `fe-codegen`   | Build     | Build [api specification](./development_docs/openapi.md)       |
+| `wheel`        | Build     | Build wheel                                                    |
+| `check`        | Test      | Run all checks                                                 |
+| `check-test`   | Test      | Run all checks and tests                                       |
+| `test`         | Test      | Run all tests                                                  |
+| `fe-check`     | Lint/Test | Check frontend                                                 |
+| `fe-test`      | Test      | Test frontend                                                  |
+| `e2e`          | Test      | Test end-to-end                                                |
+| `fe-lint`      | Lint      | Lint frontend                                                  |
+| `fe-typecheck` | Lint      | Typecheck frontend                                             |
+| `py-check`     | Lint      | Check python                                                   |
+| `py-test`      | Test      | Test python                                                    |
+| `py-snapshots` | Test      | Update HTML snapshots                                          |
+| `storybook`    | Docs      | Run Storybook                                                  |
+| `docs`         | Docs      | Build docs. Use `make ARGS="-a" docs` to force docs to rebuild |
+| `docs-serve`   | Docs      | Serve docs                                                     |
+| `docs-clean`   | Docs      | Remove built docs                                              |
 
 ## Lint, Typecheck, Format
 
@@ -61,8 +129,18 @@ make fe-check
 
 **Python.**
 
+Using Make:
+
 ```bash
 make py-check
+```
+
+Using Hatch:
+
+```bash
+hatch run lint
+hatch run format
+hatch run typecheck:check
 ```
 
 ## Tests
@@ -90,10 +168,40 @@ make fe-test
 
 ### Python
 
-In the root directory, run
+Using Make:
 
 ```bash
 make py-test
+```
+
+#### Using Hatch
+
+**Run a specific tests.**
+
+```bash
+hatch run test:test tests/_ast/
+```
+
+**Run a specific test with optional dependencies.**
+
+```bash
+hatch run test-optional:test tests/_ast/
+```
+
+**Run tests with a specific Python version.**
+
+```bash
+hatch run +py=3.10 test:test tests/_ast/
+# or
+hatch run +py=3.10 test-optional:test tests/_ast/
+```
+
+**Run all tests across all Python versions.**
+
+Not recommended since it takes a long time.
+
+```bash
+hatch run test:test
 ```
 
 ### End-to-end
@@ -106,6 +214,8 @@ dependencies; follow those instructions.)
 
 For best practices on writing end-to-end tests, check out the [Best Practices
 doc](https://playwright.dev/docs/best-practices).
+
+For frontend tests, you want to build the frontend first with `make fe` so that Playwright works on your latest changes.
 
 **Run end-to-end tests.**
 
@@ -120,7 +230,7 @@ make e2e
 In `frontend/`:
 
 ```bash
-npx playwright test --ui
+pnpm playwright test --ui
 ```
 
 **Run a specific test.**
@@ -128,15 +238,15 @@ npx playwright test --ui
 In `frontend/`:
 
 ```bash
-npx playwright test <filename> --ui
+pnpm playwright test <filename> --ui
 # e.g.
-npx playwright test cells.test.ts --ui
+pnpm playwright test cells.test.ts --ui
 ```
 
 or
 
 ```bash
-npx playwright test --debug <filename>
+pnpm playwright test --debug <filename>
 ```
 
 ## Storybook
@@ -152,7 +262,7 @@ pnpm storybook
 
 You can develop on marimo with hot reloading on the frontend and/or development
 mode on the server (which automatically restarts the server on code changes).
-These modes especially helpful when you're making many small changes and
+These modes are especially helpful when you're making many small changes and
 want to see changes end-to-end very quickly.
 
 For the frontend, you can run either
@@ -164,17 +274,19 @@ For the frontend, you can run either
 pnpm dev
 ```
 
-_OR_
+### OR
 
 ```bash
 # OR, in order to test closer to production, you can build the frontend and watch for changes
 pnpm build:watch
 ```
 
-For the backend, you can start marimo in development mode with
+For the backend, we recommend running without auth (`--no-token`):
 
 ```bash
-marimo -d edit
+marimo edit --no-token
+# or in debug mode
+marimo -d edit --no-token
 ```
 
 - **When to run with hot-reloading?**: When you are developing on the frontend
@@ -186,36 +298,32 @@ marimo -d edit
   frontend changes, or when you want to test the frontend in a way that is
   closer to production.
 - **When to run marimo CLI with development mode?**: When you are making
-  changes to the backend and you want your changes to be auto-reloaded so you
-  don't have to restart the server every time you make a change. If you are
-  running the frontend in watch mode, you will want to run the marimo server in
-  debug mode so that it will reload on changes.
+  changes to the backend and want to see debug logs.
+  When developing on marimo plugins, you can run with "On module change" as "autorun" to see changes immediately.
 
 **Caveats for running `pnpm dev`**
 
 Running `pnpm dev` will serve the frontend from a Vite dev server, not from the
 marimo server. This means that:
 
-1. You will want to run your marimo server with `--headless` so it does not open a new browser tab, as it will
-   interfere with the frontend dev server.
-2. The tradeoff of using the frontend dev server is that it is faster to
+1. You will want to run your marimo server with `--headless` and `--no-token` so it does not open a new browser tab, as it will interfere with the frontend dev server.
+1. The tradeoff of using the frontend dev server is that it is faster to
    develop on the frontend, but you will not be able to test the frontend in
    the same way that it will be used in production.
 
 ## Editor settings
 
-If use use vscode, you might find the following `settings.json` useful:
+If you use vscode, you might find the following `settings.json` useful:
 
 ```json
 {
   "editor.formatOnSave": true,
   "editor.formatOnPaste": false,
   "[typescript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "biomejs.biome"
   },
   "[typescriptreact]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  "prettier.configPath": "./frontend/.prettierrc.json"
+    "editor.defaultFormatter": "biomejs.biome"
+  }
 }
 ```

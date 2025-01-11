@@ -2,15 +2,23 @@
 from __future__ import annotations
 
 import abc
+import base64
 import copy
+import random
+import sys
+import types
 import uuid
-from dataclasses import dataclass
+import weakref
+from dataclasses import dataclass, fields
+from html import escape
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Dict,
     Generic,
     Optional,
+    Sequence,
     TypeVar,
     cast,
 )
@@ -22,6 +30,7 @@ from marimo._plugins.core.web_component import JSONType, build_ui_plugin
 from marimo._plugins.ui._core import ids
 from marimo._runtime.context import (
     ContextNotInitializedError,
+    RuntimeContext,
     get_context,
 )
 from marimo._runtime.functions import Function
@@ -59,6 +68,17 @@ class Lens:
     key: str
 
 
+@dataclass
+class InitializationArgs(Generic[S, T]):
+    component_name: str
+    initial_value: S
+    label: Optional[str]
+    on_change: Optional[Callable[[T], None]]
+    args: dict[str, JSONType]
+    slotted_html: str
+    functions: tuple[Function[Any, Any], ...]
+
+
 class MarimoConvertValueException(Exception):
     pass
 
@@ -93,6 +113,8 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
     _value_frontend: S
     _value: T
 
+    _random_seed = random.Random(42)
+
     def __init__(
         self,
         component_name: str,
@@ -115,8 +137,37 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
         slotted_html: any html to slot in the custom element
         functions: any functions to register with the graph
         """
+        # Validate parameters from a user
+        if not isinstance(component_name, str):
+            raise TypeError("component_name must be a string")
+        if label is not None and not isinstance(label, str):
+            raise TypeError("label must be a string or None")
+        if on_change is not None and not callable(on_change):
+            raise TypeError("on_change must be a callable or None")
+
         # arguments stored in signature order for cloning
-        self._args = (
+        self._component_args = args
+        self._args: InitializationArgs[S, T] = InitializationArgs(
+            component_name=component_name,
+            initial_value=initial_value,
+            label=label,
+            on_change=on_change,
+            args=args,
+            slotted_html=slotted_html,
+            functions=functions,
+        )
+        self._initialized = False
+        self._initialize(self._args)
+        self._initialized = True
+
+    def _initialize(
+        self, initialization_args: InitializationArgs[S, T]
+    ) -> None:
+        """Initialize the UIElement
+
+        Split out from __init__ so _clone() typechecks
+        """
+        (
             component_name,
             initial_value,
             label,
@@ -124,25 +175,15 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
             args,
             slotted_html,
             functions,
+        ) = (
+            initialization_args.component_name,
+            initialization_args.initial_value,
+            initialization_args.label,
+            initialization_args.on_change,
+            initialization_args.args,
+            initialization_args.slotted_html,
+            initialization_args.functions,
         )
-        self._initialized = False
-        self._initialize(*self._args)
-        self._initialized = True
-
-    def _initialize(
-        self,
-        component_name: str,
-        initial_value: S,
-        label: Optional[str],
-        on_change: Optional[Callable[[T], None]],
-        args: dict[str, JSONType],
-        slotted_html: str,
-        functions: tuple[Function[Any, Any], ...] = (),
-    ) -> None:
-        """Initialize the UIElement
-
-        Split out from __init__ so _clone() typechecks
-        """
         # A UIElement may be a child ("lens") of another UI element.
         #
         # Set with self._register_as_view() after initialization, since parents
@@ -157,7 +198,11 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
         # element will trigger a re-render and reset it to its initial value.
         # We need this to ensure that the element on the page is synchronized
         # with the element in the kernel.
-        self._random_id = str(uuid.uuid4())
+        # We use a fixed seed so that we can reproduce the same random ids
+        # across multiple runs (useful when exporting as html or in tests)
+        self._random_id = str(
+            uuid.UUID(int=self._random_seed.getrandbits(128))
+        )
 
         # Stable ID
         #
@@ -173,13 +218,26 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
         except (ids.NoIDProviderException, ContextNotInitializedError):
             self._id = self._random_id
 
+        self._ctx: RuntimeContext | None
         try:
-            ctx = get_context()
+            # cache the context in case the UI element is constructed
+            # in a nested context -- so that if the UI element is accessed
+            # in the root context (eg with app_result.defs["elem"].value),
+            # the correct constructing context is retrieved
+            self._ctx = get_context()
         except ContextNotInitializedError:
-            ctx = None
+            self._ctx = None
+        else:
+            # When the UI element is destructed, it should be removed
+            # from the UIElementRegistry (which only holds a weakref to it).
+            finalizer = weakref.finalize(
+                self, self._ctx.ui_element_registry.delete, self._id, id(self)
+            )
+            # No need to clean up the registry at program teardown
+            finalizer.atexit = False
 
-        if ctx is not None:
-            ctx.ui_element_registry.register(self._id, self)
+        if self._ctx is not None:
+            self._ctx.ui_element_registry.register(self._id, self)
             # an Instantiate request may want us to override the initial value
             try:
                 # NB: If a cell produces a non-deterministic set of
@@ -193,20 +251,21 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
                 # string ID, so users can provide their own IDs to make
                 # sure a mismatch never happens ...
                 initial_value = cast(
-                    S, ctx.kernel.get_ui_initial_value(self._id)
+                    S, self._ctx.get_ui_initial_value(self._id)
                 )
             except KeyError:
                 # we weren't asked to override the UI element's value
                 pass
 
             for function in functions:
-                ctx.function_registry.register(
+                self._ctx.function_registry.register(
                     namespace=self._id, function=function
                 )
         self._initial_value_frontend = initial_value
         self._value_frontend = initial_value
         self._value = self._initial_value = self._convert_value(initial_value)
         self._on_change = on_change
+        self._component_args = args
 
         self._inner_text = build_ui_plugin(
             component_name,
@@ -222,23 +281,6 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
             + "</marimo-ui-element>"
         )
         super().__init__(text=text)
-
-    def _dispose(self) -> None:
-        """Handle used by the registry to clean-up this element on removal."""
-        try:
-            ctx = get_context()
-            ctx.function_registry.delete(namespace=self._id)
-        except ContextNotInitializedError:
-            pass
-
-    def __del__(self) -> None:
-        try:
-            ctx = get_context()
-            ctx.ui_element_registry.delete(self._id, id(self))
-        except ContextNotInitializedError:
-            pass
-
-        super().__del__()
 
     @abc.abstractmethod
     def _convert_value(self, value: S) -> T:
@@ -256,17 +298,15 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
     @property
     def value(self) -> T:
         """The element's current value."""
-        try:
-            ctx = get_context()
-        except ContextNotInitializedError:
+        if self._ctx is None:
             return self._value
 
         if (
-            ctx.kernel.execution_context is not None
-            and not ctx.kernel.execution_context.setting_element_value
+            self._ctx.execution_context is not None
+            and not self._ctx.execution_context.setting_element_value
             and (
-                ctx.kernel.execution_context.cell_id
-                == ctx.ui_element_registry.get_cell(self._id)
+                self._ctx.execution_context.cell_id
+                == self._ctx.ui_element_registry.get_cell(self._id)
             )
         ):
             raise RuntimeError(
@@ -275,6 +315,23 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
                 "cell."
             )
         return self._value
+
+    @value.setter
+    def value(self, value: T) -> None:
+        del value
+        raise RuntimeError(
+            "Setting the value of a UIElement is not allowed. "
+            "If you need to imperatively set the value of a UIElement, "
+            "consider using mo.state()."
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "on_change":
+            raise RuntimeError(
+                "Setting the on_change handler of a UIElement is not allowed. "
+                "You must set the on_change in the constructor."
+            )
+        super().__setattr__(name, value)
 
     @mddoc
     def form(
@@ -297,57 +354,52 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
     ) -> form_plugin[S, T]:
         """Create a submittable form out of this `UIElement`.
 
-        Use this method to create a form that gates the submission
-        of a `UIElement`s value until a submit button is clicked.
+        Creates a form that gates submission of a `UIElement`'s value until a submit button is clicked.
+        The form's value is the value of the underlying element from the last submission.
 
-        The value of the `form` is the value of the underlying
-        element the last time the form was submitted.
+        Examples:
+            Convert any `UIElement` into a form:
+                ```python
+                prompt = mo.ui.text_area().form()
+                ```
 
-        **Examples.**
+            Combine with `HTML.batch` to create a form made out of multiple `UIElements`:
+                ```python
+                form = (
+                    mo.ui.md(
+                        '''
+                    **Enter your prompt.**
 
-        Convert any `UIElement` into a form:
+                    {prompt}
 
-        ```python
-        prompt = mo.ui.text_area().form()
-        ```
+                    **Choose a random seed.**
 
-        Combine with `HTML.batch` to create a form made out of multiple
-        `UIElements`:
+                    {seed}
+                    '''
+                    )
+                    .batch(
+                        prompt=mo.ui.text_area(),
+                        seed=mo.ui.number(),
+                    )
+                    .form()
+                )
+                ```
 
-        ```python
-        form = mo.ui.md(
-            '''
-            **Enter your prompt.**
-
-            {prompt}
-
-            **Choose a random seed.**
-
-            {seed}
-            '''
-        ).batch(
-            prompt=mo.ui.text_area(),
-            seed=mo.ui.number(),
-        ).form()
-        ```
-
-        **Args.**
-
-        - `label`: A text label for the form.
-        - `bordered`: whether the form should have a border
-        - `loading`: whether the form should be in a loading state
-        - `submit_button_label`: the label of the submit button
-        - `submit_button_tooltip`: the tooltip of the submit button
-        - `submit_button_disabled`: whether the submit button should be
-          disabled
-        - `clear_on_submit`: whether the form should clear its contents after
-            submitting
-        - `show_clear_button`: whether the form should show a clear button
-        - `clear_button_label`: the label of the clear button
-        - `clear_button_tooltip`: the tooltip of the clear button
-        - `validate`: a function that takes the form's value and returns an
-            error message if the value is invalid,
-            or `None` if the value is valid
+        Args:
+            label: A text label for the form.
+            bordered: Whether the form should have a border.
+            loading: Whether the form should be in a loading state.
+            submit_button_label: The label of the submit button.
+            submit_button_tooltip: The tooltip of the submit button.
+            submit_button_disabled: Whether the submit button should be disabled.
+            clear_on_submit: Whether the form should clear its contents after submitting.
+            show_clear_button: Whether the form should show a clear button.
+            clear_button_label: The label of the clear button.
+            clear_button_tooltip: The tooltip of the clear button.
+            validate: A function that takes the form's value and returns an error message if invalid,
+                or `None` if valid.
+            on_change: A callback that takes the form's value and returns an error message if invalid,
+                or `None` if valid.
         """
         from marimo._plugins.ui._impl.input import form as form_plugin
 
@@ -367,6 +419,24 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
             on_change=on_change,
         )
 
+    def send_message(
+        self, message: Dict[str, object], buffers: Optional[Sequence[bytes]]
+    ) -> None:
+        """
+        Send a message to the element rendered on the frontend
+        from the backend.
+        """
+
+        from marimo._messaging.ops import SendUIElementMessage
+
+        SendUIElementMessage(
+            ui_element=self._id,
+            message=message,
+            buffers=[
+                base64.b64encode(buffer).decode() for buffer in (buffers or [])
+            ],
+        ).broadcast()
+
     def _update(self, value: S) -> None:
         """Update value, given a value from the frontend
 
@@ -382,6 +452,61 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
         if self._on_change is not None:
             self._on_change(self._value)
 
+    def _on_update_completion(self) -> bool:
+        """Callback to run after the kernel has processed a value update.
+
+        Return true if the value of the component has changed, false otherwise
+        """
+        return False
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> UIElement[S, T]:
+        # Custom deepcopy that excludes elements that can't be deepcopied
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        for k, v in self.__dict__.items():
+            if isinstance(v, RuntimeContext):
+                setattr(result, k, v)
+            else:
+                setattr(result, k, copy.deepcopy(v, memo))
+
+        # Get a new object ID and function namespace
+        #
+        # We use the new instance's functions, since they are typically bound
+        # to the UI element instance. But we only use the new on_change
+        # if the old one was bound to self.
+        args: InitializationArgs[S, T]
+        if (
+            isinstance(self._args.on_change, types.MethodType)
+            and self._args.on_change.__self__ is self
+        ):
+            # on_change was bound to self; use the new one.
+            args = InitializationArgs(
+                **{
+                    # dataclass asdict does a deepcopy, we want shallow.
+                    **{
+                        field.name: getattr(self._args, field.name)
+                        for field in fields(self._args)
+                    },
+                    "on_change": result._args.on_change,
+                    "functions": result._args.functions,
+                }
+            )
+        else:
+            # otherwise, use the original on_change, which may be a state
+            # SetFunctor or something else unrelated to this instance.
+            args = InitializationArgs(
+                **{
+                    **{
+                        field.name: getattr(self._args, field.name)
+                        for field in fields(self._args)
+                    },
+                    "functions": result._args.functions,
+                }
+            )
+        result._initialize(args)
+        return result
+
     def _clone(self) -> UIElement[S, T]:
         """Clone a UIElement, returning one with a different id
 
@@ -390,6 +515,16 @@ class UIElement(Html, Generic[S, T], metaclass=abc.ABCMeta):
         Composite UIElement may need to override this method to run
         their own side-effects.
         """
-        duplicate = copy.deepcopy(self)
-        duplicate._initialize(*self._args)
-        return duplicate
+        return copy.deepcopy(self)
+
+    def __bool__(self) -> bool:
+        sys.stderr.write(
+            "The truth value of a UIElement is always True. You "
+            "probably want to call `.value` instead."
+        )
+        return True
+
+    def _repr_markdown_(self) -> str:
+        # When rendering to markdown, remove the marimo-ui-element tag
+        # and render the inner-text escaped.
+        return escape(self._inner_text)

@@ -20,6 +20,10 @@ interface Hotkey {
         /** Linux specific override */
         linux?: string;
       };
+  /**
+   * @default true
+   */
+  editable?: boolean;
 }
 
 interface ResolvedHotkey {
@@ -34,39 +38,50 @@ export type HotkeyGroup =
   | "Creation and Ordering"
   | "Navigation"
   | "Editing"
+  | "Markdown"
   | "Other";
 
 const DEFAULT_HOT_KEY = {
   // Cell Navigation
   "cell.focusUp": {
-    name: "Focus up",
+    name: "Go to previous cell",
     group: "Navigation",
     key: "Mod-Shift-k",
   },
   "cell.focusDown": {
-    name: "Focus down",
+    name: "Go to next cell",
     group: "Navigation",
     key: "Mod-Shift-j",
   },
 
   // Creation and Ordering
   "cell.moveUp": {
-    name: "Move up",
+    name: "Move cell up",
     group: "Creation and Ordering",
     key: "Mod-Shift-9",
   },
   "cell.moveDown": {
-    name: "Move down",
+    name: "Move cell down",
     group: "Creation and Ordering",
     key: "Mod-Shift-0",
   },
+  "cell.moveLeft": {
+    name: "Move left",
+    group: "Creation and Ordering",
+    key: "Mod-Shift-7",
+  },
+  "cell.moveRight": {
+    name: "Move right",
+    group: "Creation and Ordering",
+    key: "Mod-Shift-8",
+  },
   "cell.createAbove": {
-    name: "Create cell above",
+    name: "New cell above",
     group: "Creation and Ordering",
     key: "Mod-Shift-o",
   },
   "cell.createBelow": {
-    name: "Create cell below",
+    name: "New cell below",
     group: "Creation and Ordering",
     key: "Mod-Shift-p",
   },
@@ -79,6 +94,11 @@ const DEFAULT_HOT_KEY = {
     name: "Send to bottom",
     group: "Creation and Ordering",
     key: "Mod-Shift-2",
+  },
+  "cell.addColumnBreakpoint": {
+    name: "Add column breakpoint",
+    group: "Creation and Ordering",
+    key: "Mod-Shift-3",
   },
 
   // Running Cells
@@ -100,9 +120,14 @@ const DEFAULT_HOT_KEY = {
 
   // Editing Cells
   "cell.format": {
-    name: "Format",
+    name: "Format cell",
     group: "Editing",
     key: "Mod-b",
+  },
+  "cell.viewAsMarkdown": {
+    name: "View as Markdown",
+    group: "Editing",
+    key: "Mod-Shift-m",
   },
   "cell.complete": {
     name: "Code completion",
@@ -123,17 +148,17 @@ const DEFAULT_HOT_KEY = {
     },
   },
   "cell.findAndReplace": {
-    name: "Find and replace",
+    name: "Find and Replace",
     group: "Editing",
     key: "Mod-f",
   },
   "cell.selectNextOccurrence": {
-    name: "Select next occurrence",
+    name: "Add selection to next Find match",
     group: "Editing",
     key: "Mod-d",
   },
   "cell.fold": {
-    name: "Fold",
+    name: "Fold region",
     group: "Editing",
     key: {
       main: "Mod-Alt-[",
@@ -141,7 +166,7 @@ const DEFAULT_HOT_KEY = {
     },
   },
   "cell.unfold": {
-    name: "Unfold",
+    name: "Unfold region",
     group: "Editing",
     key: {
       main: "Mod-Alt-]",
@@ -149,12 +174,12 @@ const DEFAULT_HOT_KEY = {
     },
   },
   "cell.foldAll": {
-    name: "Fold all in cell",
+    name: "Fold all regions",
     group: "Editing",
     key: "Ctrl-Alt-[",
   },
   "cell.unfoldAll": {
-    name: "Unfold all in cell",
+    name: "Unfold all regions",
     group: "Editing",
     key: "Ctrl-Alt-]",
   },
@@ -172,6 +197,59 @@ const DEFAULT_HOT_KEY = {
     name: "AI completion",
     group: "Editing",
     key: "Mod-Shift-e",
+  },
+  "cell.cellActions": {
+    name: "Open cell actions",
+    group: "Editing",
+    key: "Mod-p",
+  },
+  "cell.splitCell": {
+    name: "Split cell",
+    group: "Editing",
+    key: "Mod-Shift-'",
+  },
+  "cell.toggleLineComment": {
+    name: "Toggle line comment",
+    group: "Editing",
+    key: "Mod-/",
+    editable: false,
+  },
+
+  // Markdown
+  "markdown.bold": {
+    name: "Bold",
+    group: "Markdown",
+    key: "Mod-b",
+  },
+  "markdown.italic": {
+    name: "Italic",
+    group: "Markdown",
+    key: "Mod-i",
+  },
+  "markdown.link": {
+    name: "Convert to Link",
+    group: "Markdown",
+    key: "Mod-k",
+  },
+  "markdown.orderedList": {
+    name: "Convert to Ordered list",
+    group: "Markdown",
+    key: "Mod-Shift-7",
+  },
+  "markdown.unorderedList": {
+    name: "Convert to Unordered list",
+    group: "Markdown",
+    key: "Mod-Shift-8",
+  },
+  "markdown.blockquote": {
+    name: "Convert to Blockquote",
+    group: "Markdown",
+    key: "Mod-Shift-9",
+  },
+  "markdown.code": {
+    name: "Convert to Code",
+    group: "Markdown",
+    key: "Mod-Shift-0",
   },
 
   // Global Actions
@@ -197,22 +275,22 @@ const DEFAULT_HOT_KEY = {
     },
   },
   "global.showHelp": {
-    name: "Keyboard shortcuts",
+    name: "Show keyboard shortcuts",
     group: "Other",
     key: "Mod-Shift-h",
   },
   "global.save": {
-    name: "Save",
+    name: "Save file",
     group: "Other",
     key: "Mod-s",
   },
   "global.commandPalette": {
-    name: "Command palette",
+    name: "Show command palette",
     group: "Other",
     key: "Mod-k",
   },
   "global.runStale": {
-    name: "Run all modified cells",
+    name: "Run all stale cells",
     group: "Running Cells",
     key: "Mod-Shift-r",
   },
@@ -231,6 +309,11 @@ const DEFAULT_HOT_KEY = {
     group: "Editing",
     key: "F4",
   },
+  "global.toggleTerminal": {
+    name: "Show integrated terminal",
+    group: "Other",
+    key: "Ctrl-`",
+  },
 
   // Global Navigation
   "global.focusTop": {
@@ -248,6 +331,11 @@ const DEFAULT_HOT_KEY = {
     group: "Navigation",
     key: "Mod-Shift-s",
   },
+  "cell.goToDefinition": {
+    name: "Go to Definition",
+    group: "Navigation",
+    key: "F12",
+  },
 } satisfies Record<string, Hotkey>;
 
 export type HotkeyAction = keyof typeof DEFAULT_HOT_KEY;
@@ -256,6 +344,9 @@ export function isHotkeyAction(x: string): x is HotkeyAction {
   return x in DEFAULT_HOT_KEY;
 }
 
+export function getDefaultHotkey(action: HotkeyAction): ResolvedHotkey {
+  return new HotkeyProvider(DEFAULT_HOT_KEY).getHotkey(action);
+}
 export interface IHotkeyProvider {
   getHotkey(action: HotkeyAction): ResolvedHotkey;
 }
@@ -301,6 +392,10 @@ export class HotkeyProvider implements IHotkeyProvider {
     return this.hotkeys[action].name;
   }
 
+  isEditable(action: HotkeyAction): boolean {
+    return this.hotkeys[action].editable !== false;
+  }
+
   getHotkeyGroups(): Record<HotkeyGroup, HotkeyAction[]> {
     return Objects.groupBy(
       Objects.entries(this.hotkeys),
@@ -328,8 +423,3 @@ export class OverridingHotkeyProvider extends HotkeyProvider {
     };
   }
 }
-
-export const HOTKEYS = new OverridingHotkeyProvider({
-  // Override default hotkeys here.
-  // This can be from the user's settings.
-});

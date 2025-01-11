@@ -1,21 +1,27 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { Extension } from "@codemirror/state";
-import { LanguageAdapter } from "./types";
+import type { Extension } from "@codemirror/state";
+import type { LanguageAdapter } from "./types";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { parseMixed } from "@lezer/common";
 import { python, pythonLanguage } from "@codemirror/lang-python";
-import dedent from "dedent";
-import { logNever } from "@/utils/assertNever";
+import dedent from "string-dedent";
 import {
-  Completion,
-  CompletionSource,
+  type Completion,
+  type CompletionSource,
   autocompletion,
 } from "@codemirror/autocomplete";
 import { once } from "lodash-es";
-
-const prefixKinds = ["", "f", "r", "fr", "rf"] as const;
-type PrefixKind = (typeof prefixKinds)[number];
+import { enhancedMarkdownExtension } from "../markdown/extension";
+import type { CompletionConfig } from "@/core/config/config-schema";
+import type { HotkeyProvider } from "@/core/hotkeys/hotkeys";
+import { indentOneTab } from "./utils/indentOneTab";
+import { type QuotePrefixKind, splitQuotePrefix } from "./utils/quotes";
+import {
+  markdownAutoRunExtension,
+  type MovementCallbacks,
+} from "../cells/extensions";
+import type { PlaceholderType } from "../config/extension";
 
 const quoteKinds = [
   ['"""', '"""'],
@@ -23,8 +29,14 @@ const quoteKinds = [
   ['"', '"'],
   ["'", "'"],
 ];
+
 // explode into all combinations
-const pairs = prefixKinds.flatMap((prefix) =>
+//
+// A note on f-strings:
+//
+// f-strings are not yet supported due to bad interactions with
+// string escaping, LaTeX, and loss of Python syntax highlighting
+const pairs = ["", "r"].flatMap((prefix) =>
   quoteKinds.map(([start, end]) => [prefix + start, end]),
 );
 
@@ -41,19 +53,28 @@ const regexes = pairs.map(
  * Language adapter for Markdown.
  */
 export class MarkdownLanguageAdapter implements LanguageAdapter {
-  type = "markdown" as const;
+  readonly type = "markdown";
+  readonly defaultCode = 'mo.md(r"""\n""")';
 
-  lastQuotePrefix: PrefixKind = "";
+  static fromMarkdown(markdown: string) {
+    return `mo.md(r"""\n${markdown}\n""")`;
+  }
+
+  lastQuotePrefix: QuotePrefixKind = "";
 
   transformIn(pythonCode: string): [string, number] {
-    if (!this.isSupported(pythonCode)) {
-      throw new Error("Not supported");
+    pythonCode = pythonCode.trim();
+
+    // empty string
+    if (pythonCode === "") {
+      this.lastQuotePrefix = "r";
+      return ["", 0];
     }
 
     for (const [start, regex] of regexes) {
       const match = pythonCode.match(regex);
       if (match) {
-        const innerCode = match[1].trim();
+        const innerCode = match[1];
 
         const [quotePrefix, quoteType] = splitQuotePrefix(start);
         // store the quote prefix for later when we transform out
@@ -61,47 +82,86 @@ export class MarkdownLanguageAdapter implements LanguageAdapter {
         const unescapedCode = innerCode.replaceAll(`\\${quoteType}`, quoteType);
 
         const offset = pythonCode.indexOf(innerCode);
-        return [dedent(unescapedCode), offset];
+        // string-dedent expects the first and last line to be empty / contain only whitespace, so we pad with \n
+        return [dedent(`\n${unescapedCode}\n`).trim(), offset];
       }
     }
 
+    // no match
     return [pythonCode, 0];
   }
 
   transformOut(code: string): [string, number] {
     // Get the quote type from the last transformIn
-    // const prefix = upgradePrefixKind(this.lastQuotePrefix, code);
     const prefix = this.lastQuotePrefix;
 
+    // Empty string
+    if (code === "") {
+      // Need at least a space, otherwise the output will be 6 quotes
+      code = " ";
+    }
+
+    // We always transform back with triple quotes, as to avoid needing to
+    // escape single quotes.
+    const escapedCode = code.replaceAll('"""', String.raw`\"""`);
+
+    // If its one line and not bounded by quotes, write it as single line
     const isOneLine = !code.includes("\n");
-    if (isOneLine) {
-      const escapedCode = code.replaceAll('"', '\\"');
-      const start = `mo.md(${prefix}"`;
-      const end = `")`;
+    const boundedByQuote = code.startsWith('"') || code.endsWith('"');
+    if (isOneLine && !boundedByQuote) {
+      const start = `mo.md(${prefix}"""`;
+      const end = `""")`;
       return [start + escapedCode + end, start.length];
     }
 
     // Multiline code
     const start = `mo.md(\n    ${prefix}"""\n`;
-    const escapedCode = code.replaceAll('"""', '\\"""');
     const end = `\n    """\n)`;
     return [start + indentOneTab(escapedCode) + end, start.length + 1];
   }
 
   isSupported(pythonCode: string): boolean {
-    const markdownLines = pythonCode
-      .split("\n")
-      .map((line) => line.startsWith("mo.md("))
-      .filter(Boolean);
-    if (markdownLines.length > 1) {
-      // more than line starting with mo.md(; as a heuristic,
-      // don't show "view as markdown"
-      return false;
+    if (pythonCode.trim() === "") {
+      return true;
     }
+
+    if (pythonCode.trim() === "mo.md()") {
+      return true;
+    }
+
+    // Handle mo.md("foo"), mo.plain_text("bar") in the same line
+    // If it starts with mo.md, but we have more than one function call, return false
+    if (pythonCode.trim().startsWith("mo.md(")) {
+      const tree = pythonLanguage.parser.parse(pythonCode);
+      let functionCallCount = 0;
+
+      // Parse the code using Lezer to check for multiple function calls
+      tree.iterate({
+        enter: (node) => {
+          if (node.name === "CallExpression") {
+            functionCallCount++;
+            if (functionCallCount > 1) {
+              return false; // Stop iterating if we've found more than one function call
+            }
+          }
+        },
+      });
+
+      // If the function call count is greater than 1, we don't want to show "view as markdown"
+      if (functionCallCount > 1) {
+        return false;
+      }
+    }
+
     return regexes.some(([, regex]) => regex.test(pythonCode));
   }
 
-  getExtension(): Extension {
+  getExtension(
+    _completionConfig: CompletionConfig,
+    hotkeys: HotkeyProvider,
+    _: PlaceholderType,
+    movementCallbacks: MovementCallbacks,
+  ): Extension[] {
     return [
       markdown({
         codeLanguages: languages,
@@ -114,7 +174,7 @@ export class MarkdownLanguageAdapter implements LanguageAdapter {
 
               // Find all { } groupings
               const pattern = /{(.*?)}/g;
-              let match;
+              let match: RegExpExecArray | null;
 
               while ((match = pattern.exec(text)) !== null) {
                 const start = match.index + 1;
@@ -134,59 +194,16 @@ export class MarkdownLanguageAdapter implements LanguageAdapter {
           },
         ],
       }),
+      enhancedMarkdownExtension(hotkeys),
       autocompletion({
         activateOnTyping: true,
-        override: [emojiCompletionSource],
+        override: [emojiCompletionSource, lucideIconCompletionSource],
       }),
+      // Markdown autorun
+      markdownAutoRunExtension(movementCallbacks),
       python().support,
     ];
   }
-}
-
-// Remove the f, r, fr, rf prefixes from the quote
-function splitQuotePrefix(quote: string): [PrefixKind, string] {
-  // start with the longest prefix
-  const prefixKindsByLength = [...prefixKinds].sort(
-    (a, b) => b.length - a.length,
-  );
-  for (const prefix of prefixKindsByLength) {
-    if (quote.startsWith(prefix)) {
-      return [prefix, quote.slice(prefix.length)];
-    }
-  }
-  return ["", quote];
-}
-
-export function upgradePrefixKind(kind: PrefixKind, code: string): PrefixKind {
-  const containsSubstitution = code.includes("{") && code.includes("}");
-
-  // If there is no substitution, keep the same prefix
-  if (!containsSubstitution) {
-    return kind;
-  }
-
-  // If there is a substitution, upgrade to an f-string
-  switch (kind) {
-    case "":
-      return "f";
-    case "r":
-      return "rf";
-    case "f":
-    case "rf":
-    case "fr":
-      return kind;
-    default:
-      logNever(kind);
-      return "f";
-  }
-}
-
-// Indent each line by one tab
-function indentOneTab(code: string): string {
-  return code
-    .split("\n")
-    .map((line) => (line.trim() === "" ? line : `    ${line}`))
-    .join("\n");
 }
 
 const emojiCompletionSource: CompletionSource = async (context) => {
@@ -211,7 +228,17 @@ const emojiCompletionSource: CompletionSource = async (context) => {
 const getEmojiList = once(async (): Promise<Completion[]> => {
   const emojiList = await fetch(
     "https://unpkg.com/emojilib@3.0.11/dist/emoji-en-US.json",
-  ).then((res) => res.json() as unknown as Record<string, string[]>);
+  )
+    .then((res) => {
+      if (!res.ok) {
+        throw new Error("Failed to fetch emoji list");
+      }
+      return res.json() as unknown as Record<string, string[]>;
+    })
+    .catch(() => {
+      // If we can't fetch the emoji list, just return an empty list
+      return {};
+    });
 
   return Object.entries(emojiList).map(([emoji, names]) => ({
     shortcode: names[0],
@@ -221,4 +248,59 @@ const getEmojiList = once(async (): Promise<Completion[]> => {
     apply: emoji,
     type: "emoji",
   }));
+});
+
+const lucideIconCompletionSource: CompletionSource = async (context) => {
+  // Check if the cursor is at a position where a Lucide icon can be inserted
+  if (!context.explicit && !context.matchBefore(/::[\w-]*$/)) {
+    return null;
+  }
+
+  const iconList = await getLucideIconList();
+  const filter = context.matchBefore(/::[\w-]*$/)?.text.slice(2) ?? "";
+
+  return {
+    from: context.pos - filter.length - 2,
+    options: iconList,
+    validFor: /^[\w-:]*$/,
+  };
+};
+
+// This loads Lucide icons from a CDN
+const getLucideIconList = once(async (): Promise<Completion[]> => {
+  const iconList = await fetch(
+    "https://unpkg.com/lucide-static@0.452.0/tags.json",
+  )
+    .then((res) => {
+      if (!res.ok) {
+        throw new Error("Failed to fetch Lucide icon list");
+      }
+      return res.json() as unknown as Record<string, string[]>;
+    })
+    .catch(() => {
+      // If we can't fetch the icon list, just return an empty list
+      return {};
+    });
+
+  const asSvg = (iconName: string) => {
+    return `https://cdn.jsdelivr.net/npm/lucide-static@0.452.0/icons/${iconName}.svg`;
+  };
+
+  return Object.entries(iconList).map(
+    ([iconName, aliases]): Completion => ({
+      label: `::${iconName}`,
+      displayLabel: iconName,
+      type: "lucide-icon",
+      boost: 10,
+      apply: `::lucide:${iconName}::`,
+      detail: aliases.join(", "),
+      info: () => {
+        const img = document.createElement("img");
+        img.src = asSvg(iconName);
+        img.style.width = "24px";
+        img.style.height = "24px";
+        return img;
+      },
+    }),
+  );
 });

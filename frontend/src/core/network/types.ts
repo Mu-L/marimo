@@ -1,188 +1,163 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { AppConfig, UserConfig } from "../config/config-schema";
-import { LayoutType } from "@/components/editor/renderers/types";
-import { CellId } from "../cells/ids";
-import { CellConfig } from "../cells/types";
-import { RequestId } from "./DeferredRequestRegistry";
-import { FilePath } from "@/utils/paths";
+import type { paths, components } from "@marimo-team/marimo-api";
+import type { CellId } from "../cells/ids";
 
-// Ideally this would be generated from server.py, but for now we just
-// manually keep them in sync.
-
-export interface DeleteRequest {
-  cellId: CellId;
+export type schemas = components["schemas"];
+export type AiCompletionRequest = schemas["AiCompletionRequest"];
+export type AppMetadata = schemas["AppMetadata"];
+export type BaseResponse = schemas["BaseResponse"];
+export type CellConfig = schemas["CellConfig"];
+/**
+ * The status of a cell.
+ *
+ * queued: queued by the kernel.
+ * running: currently executing.
+ * idle: not running.
+ * disabled-transitively: disabled because an ancestor was disabled.
+ */
+export type RuntimeState = schemas["RuntimeState"];
+export type CodeCompletionRequest = schemas["CodeCompletionRequest"];
+export type CreationRequest = schemas["CreationRequest"];
+export type DeleteCellRequest = schemas["DeleteCellRequest"];
+export type ExecuteMultipleRequest = schemas["ExecuteMultipleRequest"];
+export type ExecutionRequest = schemas["ExecutionRequest"];
+export type ExportAsHTMLRequest = schemas["ExportAsHTMLRequest"];
+export type ExportAsMarkdownRequest = schemas["ExportAsMarkdownRequest"];
+export type ExportAsIPYNBRequest = schemas["ExportAsIPYNBRequest"];
+export type ExportAsScriptRequest = schemas["ExportAsScriptRequest"];
+export type FileCreateRequest = schemas["FileCreateRequest"];
+export type FileCreateResponse = schemas["FileCreateResponse"];
+export type FileDeleteRequest = schemas["FileDeleteRequest"];
+export type FileDeleteResponse = schemas["FileDeleteResponse"];
+export type FileDetailsRequest = schemas["FileDetailsRequest"];
+export type FileDetailsResponse = schemas["FileDetailsResponse"];
+export type FileInfo = schemas["FileInfo"];
+export type FileListRequest = schemas["FileListRequest"];
+export type FileListResponse = schemas["FileListResponse"];
+export type FileMoveRequest = schemas["FileMoveRequest"];
+export type FileMoveResponse = schemas["FileMoveResponse"];
+export type FileUpdateRequest = schemas["FileUpdateRequest"];
+export type FileUpdateResponse = schemas["FileUpdateResponse"];
+export type FormatRequest = schemas["FormatRequest"];
+export type FormatResponse = schemas["FormatResponse"];
+export type FunctionCallRequest = schemas["FunctionCallRequest"];
+export type InstallMissingPackagesRequest =
+  schemas["InstallMissingPackagesRequest"];
+export type AddPackageRequest = schemas["AddPackageRequest"];
+export type RemovePackageRequest = schemas["RemovePackageRequest"];
+export type ListPackagesResponse = schemas["ListPackagesResponse"];
+export type PackageOperationResponse = schemas["PackageOperationResponse"];
+export type InstantiateRequest = schemas["InstantiateRequest"];
+export type MarimoConfig = schemas["MarimoConfig"];
+export type MarimoFile = schemas["MarimoFile"];
+export type OpenFileRequest = schemas["OpenFileRequest"];
+export type PreviewDatasetColumnRequest =
+  schemas["PreviewDatasetColumnRequest"];
+export type ReadCodeResponse = schemas["ReadCodeResponse"];
+export type RecentFilesResponse = schemas["RecentFilesResponse"];
+export type RenameFileRequest = schemas["RenameFileRequest"];
+export type RunRequest = schemas["RunRequest"];
+export type RunScratchpadRequest = schemas["RunScratchpadRequest"];
+export type SaveAppConfigurationRequest =
+  schemas["SaveAppConfigurationRequest"];
+export type SaveNotebookRequest = schemas["SaveNotebookRequest"];
+export type CopyNotebookRequest = schemas["CopyNotebookRequest"];
+export type SaveUserConfigurationRequest =
+  schemas["SaveUserConfigurationRequest"];
+export interface SetCellConfigRequest {
+  configs: Record<CellId, Partial<CellConfig>>;
 }
-
-export interface InstantiateRequest {
-  objectIds: string[];
-  values: unknown[];
-}
-
-export interface FormatRequest {
-  /**
-   * mapping of cell ids to code
-   */
-  codes: Record<CellId, string>;
-  /**
-   * line-length
-   */
-  lineLength: number;
-}
-
-export interface FormatResponse {
-  /**
-   * mapping of formatted cell ids to code
-   * response keys are a subset of request keys
-   */
-  codes: Record<CellId, string>;
-}
-
-export interface RenameRequest {
-  filename: string | null;
-}
-
-export interface RunRequest {
-  cellIds: CellId[];
-  codes: string[];
-}
-
-export interface SaveKernelRequest {
-  cellIds: CellId[];
-  filename: string;
-  codes: string[];
-  names: string[];
-  layout:
-    | {
-        type: LayoutType;
-        data: unknown;
-      }
-    | undefined;
-  configs: CellConfig[];
-}
-
-export interface SetComponentValuesRequest {
-  objectIds: string[];
-  values: unknown[];
-}
-
-export interface CodeCompletionRequest {
-  id: RequestId;
-  document: string;
-  cellId: CellId;
-}
-
-export interface SaveUserConfigRequest {
-  config: UserConfig;
-}
-
-export interface SaveAppConfigRequest {
-  config: AppConfig;
-}
-
-export interface SaveCellConfigRequest {
-  configs: Record<CellId, CellConfig>;
-}
-
-export interface SendFunctionRequest {
-  functionCallId: RequestId;
-  args: unknown;
-  namespace: string;
-  functionName: string;
-}
-
-export interface SendStdin {
-  text: string;
-}
-
-export interface ValueUpdate {
-  objectId: string;
-  value: unknown;
-}
-
-export interface FileInfo {
-  id: string;
-  path: FilePath;
-  name: string;
-  isDirectory: boolean;
-  isMarimoFile: boolean;
-  children: FileInfo[];
-}
-
-export interface FileListRequest {
-  path: FilePath | undefined;
-}
-
-export interface FileListResponse {
-  files: FileInfo[];
-  root: FilePath;
-}
-
-export interface FileCreateRequest {
-  path: FilePath;
-  type: "file" | "directory";
-  name: string;
-  contents: string | undefined;
-}
-
-export interface FileDeleteRequest {
-  path: FilePath;
-}
-
-export interface FileUpdateRequest {
-  path: FilePath;
-  newPath: FilePath;
-}
-
-export interface FileOperationResponse {
-  success: boolean;
-  message: string | undefined;
-  info: FileInfo | undefined;
-}
-
-export interface FileDetailsResponse {
-  file: FileInfo;
-  mimeType: string | undefined;
-  contents: string | undefined;
-}
+export type SetUIElementValueRequest = schemas["SetUIElementValueRequest"];
+export type UpdateCellIdsRequest = schemas["UpdateCellIdsRequest"];
+export type SetUserConfigRequest = schemas["SetUserConfigRequest"];
+export type ShutdownSessionRequest = schemas["ShutdownSessionRequest"];
+export type Snippet = schemas["Snippet"];
+export type SnippetSection = schemas["SnippetSection"];
+export type Snippets = schemas["Snippets"];
+export type StdinRequest = schemas["StdinRequest"];
+export type SuccessResponse = schemas["SuccessResponse"];
+export type UpdateComponentValuesRequest =
+  schemas["UpdateComponentValuesRequest"];
+export type UsageResponse =
+  paths["/api/usage"]["get"]["responses"]["200"]["content"]["application/json"];
+export type WorkspaceFilesRequest = schemas["WorkspaceFilesRequest"];
+export type WorkspaceFilesResponse = schemas["WorkspaceFilesResponse"];
+export type RunningNotebooksResponse = schemas["RunningNotebooksResponse"];
+export type OpenTutorialRequest = schemas["OpenTutorialRequest"];
+export type TutorialId = OpenTutorialRequest["tutorialId"];
 
 /**
  * Requests sent to the BE during run/edit mode.
  */
 export interface RunRequests {
-  sendComponentValues: (valueUpdates: ValueUpdate[]) => Promise<null>;
+  sendComponentValues: (request: UpdateComponentValuesRequest) => Promise<null>;
   sendInstantiate: (request: InstantiateRequest) => Promise<null>;
-  sendFunctionRequest: (request: SendFunctionRequest) => Promise<null>;
+  sendFunctionRequest: (request: FunctionCallRequest) => Promise<null>;
 }
 
 /**
  * Requests sent to the BE during edit mode.
  */
 export interface EditRequests {
-  sendRename: (filename: string | null) => Promise<null>;
-  sendSave: (request: SaveKernelRequest) => Promise<null>;
-  sendStdin: (request: SendStdin) => Promise<null>;
-  sendRun: (cellIds: CellId[], codes: string[]) => Promise<null>;
+  sendRename: (request: RenameFileRequest) => Promise<null>;
+  sendSave: (request: SaveNotebookRequest) => Promise<null>;
+  sendCopy: (request: CopyNotebookRequest) => Promise<null>;
+  sendStdin: (request: StdinRequest) => Promise<null>;
+  sendRun: (request: RunRequest) => Promise<null>;
+  sendRunScratchpad: (request: RunScratchpadRequest) => Promise<null>;
   sendInterrupt: () => Promise<null>;
   sendShutdown: () => Promise<null>;
-  sendFormat: (request: FormatRequest) => Promise<Record<CellId, string>>;
-  sendDeleteCell: (cellId: CellId) => Promise<null>;
+  sendFormat: (request: FormatRequest) => Promise<FormatResponse>;
+  sendDeleteCell: (request: DeleteCellRequest) => Promise<null>;
   sendCodeCompletionRequest: (request: CodeCompletionRequest) => Promise<null>;
-  saveUserConfig: (request: SaveUserConfigRequest) => Promise<null>;
-  saveAppConfig: (request: SaveAppConfigRequest) => Promise<null>;
-  saveCellConfig: (request: SaveCellConfigRequest) => Promise<null>;
+  saveUserConfig: (request: SaveUserConfigurationRequest) => Promise<null>;
+  saveAppConfig: (request: SaveAppConfigurationRequest) => Promise<null>;
+  saveCellConfig: (request: SetCellConfigRequest) => Promise<null>;
   sendRestart: () => Promise<null>;
+  syncCellIds: (request: UpdateCellIdsRequest) => Promise<null>;
+  sendInstallMissingPackages: (
+    request: InstallMissingPackagesRequest,
+  ) => Promise<null>;
   readCode: () => Promise<{ contents: string }>;
+  readSnippets: () => Promise<Snippets>;
+  previewDatasetColumn: (request: PreviewDatasetColumnRequest) => Promise<null>;
   openFile: (request: { path: string }) => Promise<null>;
+  getUsageStats: () => Promise<UsageResponse>;
   // File explorer requests
   sendListFiles: (request: FileListRequest) => Promise<FileListResponse>;
   sendCreateFileOrFolder: (
     request: FileCreateRequest,
-  ) => Promise<FileOperationResponse>;
+  ) => Promise<FileCreateResponse>;
   sendDeleteFileOrFolder: (
     request: FileDeleteRequest,
-  ) => Promise<FileOperationResponse>;
+  ) => Promise<FileDeleteResponse>;
   sendRenameFileOrFolder: (
-    request: FileUpdateRequest,
-  ) => Promise<FileOperationResponse>;
+    request: FileMoveRequest,
+  ) => Promise<FileMoveResponse>;
+  sendUpdateFile: (request: FileUpdateRequest) => Promise<FileUpdateResponse>;
   sendFileDetails: (request: { path: string }) => Promise<FileDetailsResponse>;
+  // Homepage requests
+  openTutorial: (request: OpenTutorialRequest) => Promise<MarimoFile>;
+  getRecentFiles: () => Promise<RecentFilesResponse>;
+  getWorkspaceFiles: (
+    request: WorkspaceFilesRequest,
+  ) => Promise<WorkspaceFilesResponse>;
+  getRunningNotebooks: () => Promise<RunningNotebooksResponse>;
+  shutdownSession: (
+    request: ShutdownSessionRequest,
+  ) => Promise<RunningNotebooksResponse>;
+  // Export requests
+  exportAsHTML: (request: ExportAsHTMLRequest) => Promise<string>;
+  exportAsMarkdown: (request: ExportAsMarkdownRequest) => Promise<string>;
+  autoExportAsHTML: (request: ExportAsHTMLRequest) => Promise<null>;
+  autoExportAsMarkdown: (request: ExportAsMarkdownRequest) => Promise<null>;
+  autoExportAsIPYNB: (request: ExportAsIPYNBRequest) => Promise<null>;
+  // Package requests
+  getPackageList: () => Promise<ListPackagesResponse>;
+  addPackage: (request: AddPackageRequest) => Promise<PackageOperationResponse>;
+  removePackage: (
+    request: RemovePackageRequest,
+  ) => Promise<PackageOperationResponse>;
 }
+
+export type RequestKey = keyof (EditRequests & RunRequests);

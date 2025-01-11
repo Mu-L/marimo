@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <base href='{{ base_url }}/' />
     <meta charset="utf-8" />
     <link rel="icon" href="/favicon.ico" />
     <!-- Preload is necessary because we show these images when we disconnect from the server,
@@ -24,14 +23,31 @@
 
     <script data-marimo="true">
       function __resizeIframe(obj) {
-        // Resize the iframe to the height of the content
-        obj.style.height =
-          obj.contentWindow.document.documentElement.scrollHeight + "px";
-        
+        var scrollbarHeight = 20; // Max between windows, mac, and linux
+
+        function setHeight() {
+          var element = obj.contentWindow.document.documentElement;
+          // If there is no vertical scrollbar, we don't need to resize the iframe
+          if (element.scrollHeight === element.clientHeight) {
+            return;
+          }
+
+          // Create a new height that includes the scrollbar height if it's visible
+          var hasHorizontalScrollbar = element.scrollWidth > element.clientWidth;
+          var newHeight = element.scrollHeight + (hasHorizontalScrollbar ? scrollbarHeight : 0);
+
+          // Only update the height if it's different from the current height
+          if (obj.style.height !== `${newHeight}px`) {
+            obj.style.height = `${newHeight}px`;
+          }
+        }
+
+        // Resize the iframe to the height of the content and bottom scrollbar height
+        setHeight();
+
         // Resize the iframe when the content changes
         const resizeObserver = new ResizeObserver((entries) => {
-          obj.style.height =
-            obj.contentWindow.document.documentElement.scrollHeight + "px";
+          setHeight();
         });
         resizeObserver.observe(obj.contentWindow.document.body);
       }
@@ -39,7 +55,7 @@
     <marimo-filename hidden>{{ filename }}</marimo-filename>
     <marimo-mode data-mode='{{ mode }}' hidden></marimo-mode>
     <marimo-version data-version='{{ version }}' hidden></marimo-version>
-    <marimo-user-config data-config='{{ user_config }}' hidden></marimo-user-config>
+    <marimo-user-config data-config='{{ user_config }}' data-overrides='{{ config_overrides }}' hidden></marimo-user-config>
     <marimo-app-config data-config='{{ app_config }}' hidden></marimo-app-config>
     <marimo-server-token data-token='{{ server_token }}' hidden></marimo-server-token>
     <title>{{ title }}</title>

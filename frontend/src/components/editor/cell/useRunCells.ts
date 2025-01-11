@@ -1,29 +1,32 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { RuntimeState } from "@/core/kernel/RuntimeState";
-import { CellId } from "@/core/cells/ids";
+import type { CellId } from "@/core/cells/ids";
 import { sendRun } from "@/core/network/requests";
-import { staleCellIds, useNotebook } from "@/core/cells/cells";
-import { derefNotNull } from "@/utils/dereference";
+import { getNotebook, useCellActions } from "@/core/cells/cells";
 import useEvent from "react-use-event-hook";
 import { getEditorCodeAsPython } from "@/core/codemirror/language/utils";
 import { Logger } from "@/utils/Logger";
+import { staleCellIds } from "@/core/cells/utils";
 
 /**
  * Creates a function that runs all cells that have been edited or interrupted.
  */
 export function useRunStaleCells() {
-  const notebook = useNotebook();
   const runCells = useRunCells();
-  const runStaleCells = useEvent(() => runCells(staleCellIds(notebook)));
+  const runStaleCells = useEvent(() => runCells(staleCellIds(getNotebook())));
   return runStaleCells;
 }
 
 /**
  * Creates a function that runs the cell with the given id.
  */
-export function useRunCell(cellId: CellId) {
+export function useRunCell(cellId: CellId | undefined) {
   const runCells = useRunCells();
-  const runCell = useEvent(() => runCells([cellId]));
+  const runCell = useEvent(() => {
+    if (cellId === undefined) {
+      return;
+    }
+    runCells([cellId]);
+  });
   return runCell;
 }
 
@@ -31,26 +34,29 @@ export function useRunCell(cellId: CellId) {
  * Creates a function that runs the given cells.
  */
 function useRunCells() {
-  const notebook = useNotebook();
+  const { prepareForRun } = useCellActions();
 
   const runCells = useEvent(async (cellIds: CellId[]) => {
     if (cellIds.length === 0) {
       return;
     }
 
-    const { cellHandles } = notebook;
+    const { cellHandles, cellData } = getNotebook();
 
     const codes: string[] = [];
     for (const cellId of cellIds) {
-      const ref = derefNotNull(cellHandles[cellId]);
-      codes.push(getEditorCodeAsPython(ref.editorView));
-      ref.registerRun();
+      const ref = cellHandles[cellId];
+      if (ref.current) {
+        codes.push(getEditorCodeAsPython(ref.current.editorView));
+        ref.current.registerRun();
+      } else {
+        prepareForRun({ cellId });
+        codes.push(cellData[cellId].code);
+      }
     }
 
-    RuntimeState.INSTANCE.registerRunStart();
-    await sendRun(cellIds, codes).catch((error) => {
+    await sendRun({ cellIds: cellIds, codes: codes }).catch((error) => {
       Logger.error(error);
-      RuntimeState.INSTANCE.registerRunEnd();
     });
   });
 

@@ -1,8 +1,8 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { createContext } from "react";
-import { ColumnDataTypes } from "../types";
+import type { ColumnDataTypes } from "../types";
 
-export const ColumnInfoContext = createContext<ColumnDataTypes>({});
+export const ColumnInfoContext = createContext<ColumnDataTypes>(new Map());
 
 export const ColumnNameContext = createContext<string>("");
 export const ColumnFetchValuesContext = createContext<

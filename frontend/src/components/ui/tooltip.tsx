@@ -3,8 +3,14 @@ import * as React from "react";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
 import { cn } from "@/utils/cn";
+import { StyleNamespace } from "@/theme/namespace";
 
-const TooltipProvider = TooltipPrimitive.Provider;
+const TooltipProvider = ({
+  delayDuration = 400,
+  ...props
+}: TooltipPrimitive.TooltipProviderProps) => (
+  <TooltipPrimitive.Provider delayDuration={delayDuration} {...props} />
+);
 
 const TooltipRoot = TooltipPrimitive.Root;
 
@@ -14,15 +20,17 @@ const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
 >(({ className, sideOffset = 4, ...props }, ref) => (
-  <TooltipPrimitive.Content
-    ref={ref}
-    sideOffset={sideOffset}
-    className={cn(
-      "z-50 overflow-hidden rounded-md border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-xs data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
-      className,
-    )}
-    {...props}
-  />
+  <StyleNamespace>
+    <TooltipPrimitive.Content
+      ref={ref}
+      sideOffset={sideOffset}
+      className={cn(
+        "z-50 overflow-hidden rounded-md border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-xs data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
+        className,
+      )}
+      {...props}
+    />
+  </StyleNamespace>
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
@@ -34,6 +42,7 @@ const Tooltip: React.FC<
     asChild?: boolean;
     side?: TooltipPrimitive.TooltipContentProps["side"];
     tabIndex?: number;
+    align?: TooltipPrimitive.TooltipContentProps["align"];
   } & React.ComponentPropsWithoutRef<typeof TooltipRoot>
 > = ({
   content,
@@ -42,21 +51,32 @@ const Tooltip: React.FC<
   asChild = true,
   tabIndex,
   side,
+  align,
   ...rootProps
-}) => (
-  <TooltipRoot disableHoverableContent={true} {...rootProps}>
-    <TooltipTrigger asChild={asChild} tabIndex={tabIndex}>
-      {children}
-    </TooltipTrigger>
-    {usePortal ? (
-      <TooltipPrimitive.TooltipPortal>
-        <TooltipContent side={side}>{content}</TooltipContent>
-      </TooltipPrimitive.TooltipPortal>
-    ) : (
-      <TooltipContent side={side}>{content}</TooltipContent>
-    )}
-  </TooltipRoot>
-);
+}) => {
+  if (content == null || content === "") {
+    return children;
+  }
+
+  return (
+    <TooltipRoot disableHoverableContent={true} {...rootProps}>
+      <TooltipTrigger asChild={asChild} tabIndex={tabIndex}>
+        {children}
+      </TooltipTrigger>
+      {usePortal ? (
+        <TooltipPrimitive.TooltipPortal>
+          <TooltipContent side={side} align={align}>
+            {content}
+          </TooltipContent>
+        </TooltipPrimitive.TooltipPortal>
+      ) : (
+        <TooltipContent side={side} align={align}>
+          {content}
+        </TooltipContent>
+      )}
+    </TooltipRoot>
+  );
+};
 
 export {
   Tooltip,

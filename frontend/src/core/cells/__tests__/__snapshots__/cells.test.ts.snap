@@ -3,7 +3,11 @@
 exports[`cell reducer > can initialize stdin 1`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -11,12 +15,15 @@ exports[`cell reducer > can initialize stdin 1`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": null,
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -25,7 +32,11 @@ exports[`cell reducer > can initialize stdin 1`] = `
 exports[`cell reducer > can initialize stdin 2`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -33,13 +44,16 @@ exports[`cell reducer > can initialize stdin 2`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
-  "status": "idle",
+  "staleInputs": false,
+  "status": "queued",
   "stopped": false,
 }
 `;
@@ -47,7 +61,11 @@ exports[`cell reducer > can initialize stdin 2`] = `
 exports[`cell reducer > can initialize stdin 3`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -55,12 +73,15 @@ exports[`cell reducer > can initialize stdin 3`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "queued",
   "stopped": false,
 }
@@ -69,7 +90,11 @@ exports[`cell reducer > can initialize stdin 3`] = `
 exports[`cell reducer > can initialize stdin 4`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -77,12 +102,15 @@ exports[`cell reducer > can initialize stdin 4`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 20,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -91,7 +119,11 @@ exports[`cell reducer > can initialize stdin 4`] = `
 exports[`cell reducer > can initialize stdin 5`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -106,12 +138,15 @@ exports[`cell reducer > can initialize stdin 5`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 20,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -120,7 +155,11 @@ exports[`cell reducer > can initialize stdin 5`] = `
 exports[`cell reducer > can initialize stdin 6`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -135,12 +174,15 @@ exports[`cell reducer > can initialize stdin 6`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 20,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -149,7 +191,11 @@ exports[`cell reducer > can initialize stdin 6`] = `
 exports[`cell reducer > can initialize stdin 7`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -170,12 +216,15 @@ exports[`cell reducer > can initialize stdin 7`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 20,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -184,7 +233,11 @@ exports[`cell reducer > can initialize stdin 7`] = `
 exports[`cell reducer > can initialize stdin 8`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -206,12 +259,15 @@ exports[`cell reducer > can initialize stdin 8`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 20,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -220,7 +276,11 @@ exports[`cell reducer > can initialize stdin 8`] = `
 exports[`cell reducer > can initialize stdin 9`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -248,12 +308,15 @@ exports[`cell reducer > can initialize stdin 9`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 20,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -262,7 +325,11 @@ exports[`cell reducer > can initialize stdin 9`] = `
 exports[`cell reducer > can receive console when the cell is idle and will clear when starts again 1`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -270,12 +337,15 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
   "id": "0",
   "interrupted": false,
   "lastCodeRun": null,
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -284,7 +354,11 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
 exports[`cell reducer > can receive console when the cell is idle and will clear when starts again 2`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -299,13 +373,16 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
-  "status": "idle",
+  "staleInputs": false,
+  "status": "queued",
   "stopped": false,
 }
 `;
@@ -313,7 +390,11 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
 exports[`cell reducer > can receive console when the cell is idle and will clear when starts again 3`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -328,12 +409,15 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "queued",
   "stopped": false,
 }
@@ -342,7 +426,11 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
 exports[`cell reducer > can receive console when the cell is idle and will clear when starts again 4`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -350,12 +438,15 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 20,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -364,7 +455,11 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
 exports[`cell reducer > can receive console when the cell is idle and will clear when starts again 5`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdin",
@@ -379,12 +474,15 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": 2000,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -393,7 +491,11 @@ exports[`cell reducer > can receive console when the cell is idle and will clear
 exports[`cell reducer > can run a stale cell 1`] = `
 {
   "code": "mo.slider()",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -401,12 +503,15 @@ exports[`cell reducer > can run a stale cell 1`] = `
   "id": "1",
   "interrupted": false,
   "lastCodeRun": "mo.slider()",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "queued",
   "stopped": false,
 }
@@ -415,7 +520,11 @@ exports[`cell reducer > can run a stale cell 1`] = `
 exports[`cell reducer > can run a stale cell 2`] = `
 {
   "code": "mo.slider()",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -423,13 +532,16 @@ exports[`cell reducer > can run a stale cell 2`] = `
   "id": "1",
   "interrupted": false,
   "lastCodeRun": "mo.slider()",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
-  "status": "stale",
+  "staleInputs": true,
+  "status": "queued",
   "stopped": false,
 }
 `;
@@ -437,7 +549,11 @@ exports[`cell reducer > can run a stale cell 2`] = `
 exports[`cell reducer > can run a stopped cell 1`] = `
 {
   "code": "mo.md('This has an ancestor that was stopped')",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -445,12 +561,15 @@ exports[`cell reducer > can run a stopped cell 1`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "mo.md('This has an ancestor that was stopped')",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "queued",
   "stopped": false,
 }
@@ -459,7 +578,11 @@ exports[`cell reducer > can run a stopped cell 1`] = `
 exports[`cell reducer > can run a stopped cell 2`] = `
 {
   "code": "mo.md('This has an ancestor that was stopped')",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -467,12 +590,15 @@ exports[`cell reducer > can run a stopped cell 2`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "mo.md('This has an ancestor that was stopped')",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -481,7 +607,11 @@ exports[`cell reducer > can run a stopped cell 2`] = `
 exports[`cell reducer > can run a stopped cell 3`] = `
 {
   "code": "mo.md('This has an ancestor that was stopped')",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -489,7 +619,9 @@ exports[`cell reducer > can run a stopped cell 3`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "mo.md('This has an ancestor that was stopped')",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": {
     "channel": "marimo-error",
@@ -506,6 +638,7 @@ exports[`cell reducer > can run a stopped cell 3`] = `
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": true,
 }
@@ -514,7 +647,11 @@ exports[`cell reducer > can run a stopped cell 3`] = `
 exports[`cell reducer > can run a stopped cell 4`] = `
 {
   "code": "mo.md('This has an ancestor that was stopped')",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -522,7 +659,9 @@ exports[`cell reducer > can run a stopped cell 4`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "mo.md('This has an ancestor that was stopped')",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": {
     "channel": "marimo-error",
@@ -539,6 +678,7 @@ exports[`cell reducer > can run a stopped cell 4`] = `
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "queued",
   "stopped": true,
 }
@@ -547,7 +687,11 @@ exports[`cell reducer > can run a stopped cell 4`] = `
 exports[`cell reducer > can run a stopped cell 5`] = `
 {
   "code": "mo.md('This has an ancestor that was stopped')",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -555,12 +699,15 @@ exports[`cell reducer > can run a stopped cell 5`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "mo.md('This has an ancestor that was stopped')",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 40,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 40,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -569,7 +716,11 @@ exports[`cell reducer > can run a stopped cell 5`] = `
 exports[`cell reducer > can run cell and receive cell messages 1`] = `
 {
   "code": "",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -577,12 +728,15 @@ exports[`cell reducer > can run cell and receive cell messages 1`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": null,
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -591,7 +745,11 @@ exports[`cell reducer > can run cell and receive cell messages 1`] = `
 exports[`cell reducer > can run cell and receive cell messages 2`] = `
 {
   "code": "import marimo as mo",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": true,
@@ -599,12 +757,15 @@ exports[`cell reducer > can run cell and receive cell messages 2`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": null,
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -613,7 +774,11 @@ exports[`cell reducer > can run cell and receive cell messages 2`] = `
 exports[`cell reducer > can run cell and receive cell messages 3`] = `
 {
   "code": "import marimo as mo",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -621,13 +786,16 @@ exports[`cell reducer > can run cell and receive cell messages 3`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "import marimo as mo",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
-  "status": "idle",
+  "staleInputs": false,
+  "status": "queued",
   "stopped": false,
 }
 `;
@@ -635,7 +803,11 @@ exports[`cell reducer > can run cell and receive cell messages 3`] = `
 exports[`cell reducer > can run cell and receive cell messages 4`] = `
 {
   "code": "import marimo as mo",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -643,12 +815,15 @@ exports[`cell reducer > can run cell and receive cell messages 4`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "import marimo as mo",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "queued",
   "stopped": false,
 }
@@ -657,7 +832,11 @@ exports[`cell reducer > can run cell and receive cell messages 4`] = `
 exports[`cell reducer > can run cell and receive cell messages 5`] = `
 {
   "code": "import marimo as mo",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [],
   "debuggerActive": false,
   "edited": false,
@@ -665,12 +844,15 @@ exports[`cell reducer > can run cell and receive cell messages 5`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "import marimo as mo",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 20,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -679,7 +861,11 @@ exports[`cell reducer > can run cell and receive cell messages 5`] = `
 exports[`cell reducer > can run cell and receive cell messages 6`] = `
 {
   "code": "import marimo as mo",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -694,12 +880,15 @@ exports[`cell reducer > can run cell and receive cell messages 6`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "import marimo as mo",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": null,
   "runElapsedTimeMs": null,
   "runStartTimestamp": 20,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "running",
   "stopped": false,
 }
@@ -708,7 +897,11 @@ exports[`cell reducer > can run cell and receive cell messages 6`] = `
 exports[`cell reducer > can run cell and receive cell messages 7`] = `
 {
   "code": "import marimo as mo",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -723,7 +916,9 @@ exports[`cell reducer > can run cell and receive cell messages 7`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "import marimo as mo",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": {
     "channel": "output",
@@ -734,6 +929,7 @@ exports[`cell reducer > can run cell and receive cell messages 7`] = `
   "runElapsedTimeMs": 13000,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -743,7 +939,11 @@ exports[`cell reducer > can run cell and receive cell messages 8`] = `
 {
   "code": "import marimo as mo
 import numpy",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -758,7 +958,9 @@ import numpy",
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "import marimo as mo",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": {
     "channel": "output",
@@ -769,6 +971,7 @@ import numpy",
   "runElapsedTimeMs": 13000,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -777,7 +980,11 @@ import numpy",
 exports[`cell reducer > can run cell and receive cell messages 9`] = `
 {
   "code": "import marimo as mo",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -792,7 +999,9 @@ exports[`cell reducer > can run cell and receive cell messages 9`] = `
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "import marimo as mo",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": {
     "channel": "output",
@@ -803,6 +1012,7 @@ exports[`cell reducer > can run cell and receive cell messages 9`] = `
   "runElapsedTimeMs": 13000,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -812,7 +1022,11 @@ exports[`cell reducer > can run cell and receive cell messages 10`] = `
 {
   "code": "import marimo as mo
 import numpy",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -827,7 +1041,9 @@ import numpy",
   "id": "0",
   "interrupted": false,
   "lastCodeRun": "import marimo as mo",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 20,
+  "name": "_",
   "outline": null,
   "output": {
     "channel": "output",
@@ -838,6 +1054,7 @@ import numpy",
   "runElapsedTimeMs": 13000,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -847,7 +1064,11 @@ exports[`cell reducer > can run cell and receive cell messages 11`] = `
 {
   "code": "import marimo as mo
 import numpy",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -863,7 +1084,9 @@ import numpy",
   "interrupted": false,
   "lastCodeRun": "import marimo as mo
 import numpy",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 50,
+  "name": "_",
   "outline": null,
   "output": {
     "channel": "marimo-error",
@@ -880,6 +1103,7 @@ import numpy",
   "runElapsedTimeMs": 11000,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }
@@ -889,7 +1113,11 @@ exports[`cell reducer > can run cell and receive cell messages 12`] = `
 {
   "code": "import marimo as mo
 import numpy",
-  "config": {},
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
   "consoleOutputs": [
     {
       "channel": "stdout",
@@ -905,7 +1133,9 @@ import numpy",
   "interrupted": true,
   "lastCodeRun": "import marimo as mo
 import numpy",
-  "name": "__",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": 50,
+  "name": "_",
   "outline": null,
   "output": {
     "channel": "marimo-error",
@@ -920,6 +1150,134 @@ import numpy",
   "runElapsedTimeMs": 11000,
   "runStartTimestamp": null,
   "serializedEditorState": null,
+  "staleInputs": false,
+  "status": "idle",
+  "stopped": false,
+}
+`;
+
+exports[`cell reducer > errors reset status to idle 1`] = `
+{
+  "code": "",
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
+  "consoleOutputs": [],
+  "debuggerActive": false,
+  "edited": false,
+  "errored": false,
+  "id": "0",
+  "interrupted": false,
+  "lastCodeRun": null,
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
+  "outline": null,
+  "output": null,
+  "runElapsedTimeMs": null,
+  "runStartTimestamp": null,
+  "serializedEditorState": null,
+  "staleInputs": false,
+  "status": "idle",
+  "stopped": false,
+}
+`;
+
+exports[`cell reducer > errors reset status to idle 2`] = `
+{
+  "code": "import marimo as mo",
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
+  "consoleOutputs": [],
+  "debuggerActive": false,
+  "edited": true,
+  "errored": false,
+  "id": "0",
+  "interrupted": false,
+  "lastCodeRun": null,
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
+  "outline": null,
+  "output": null,
+  "runElapsedTimeMs": null,
+  "runStartTimestamp": null,
+  "serializedEditorState": null,
+  "staleInputs": false,
+  "status": "idle",
+  "stopped": false,
+}
+`;
+
+exports[`cell reducer > errors reset status to idle 3`] = `
+{
+  "code": "import marimo as mo",
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
+  "consoleOutputs": [],
+  "debuggerActive": false,
+  "edited": false,
+  "errored": false,
+  "id": "0",
+  "interrupted": false,
+  "lastCodeRun": "import marimo as mo",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
+  "outline": null,
+  "output": null,
+  "runElapsedTimeMs": null,
+  "runStartTimestamp": null,
+  "serializedEditorState": null,
+  "staleInputs": false,
+  "status": "queued",
+  "stopped": false,
+}
+`;
+
+exports[`cell reducer > errors reset status to idle 4`] = `
+{
+  "code": "import marimo as mo",
+  "config": {
+    "column": null,
+    "disabled": false,
+    "hide_code": false,
+  },
+  "consoleOutputs": [],
+  "debuggerActive": false,
+  "edited": false,
+  "errored": true,
+  "id": "0",
+  "interrupted": false,
+  "lastCodeRun": "import marimo as mo",
+  "lastExecutionTime": null,
+  "lastRunStartTimestamp": null,
+  "name": "_",
+  "outline": null,
+  "output": {
+    "channel": "marimo-error",
+    "data": [
+      {
+        "exception_type": "SyntaxError",
+        "msg": "Oh no!",
+        "type": "exception",
+      },
+    ],
+    "mimetype": "application/vnd.marimo+error",
+    "timestamp": 0,
+  },
+  "runElapsedTimeMs": null,
+  "runStartTimestamp": null,
+  "serializedEditorState": null,
+  "staleInputs": false,
   "status": "idle",
   "stopped": false,
 }

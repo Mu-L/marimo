@@ -11,8 +11,10 @@ session is closed as soon as its websocket connection is severed. In edit mode,
 in which we have at most one connected client, a session may be kept around
 even if its socket is closed.
 """
+
 from __future__ import annotations
 
+import asyncio
 import multiprocessing as mp
 import os
 import queue
@@ -21,45 +23,60 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from multiprocessing import connection
 from multiprocessing.queues import Queue as MPQueue
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional, Union
 from uuid import uuid4
 
 from marimo import _loggers
-from marimo._ast.app import InternalApp, _AppConfig
 from marimo._ast.cell import CellConfig, CellId_t
-from marimo._messaging.ops import Alert, MessageOperation, Reload
+from marimo._cli.print import red
+from marimo._config.manager import MarimoConfigReader
+from marimo._config.settings import GLOBAL_SETTINGS
+from marimo._messaging.ops import (
+    Alert,
+    FocusCell,
+    MessageOperation,
+    Reload,
+    UpdateCellCodes,
+)
 from marimo._messaging.types import KernelMessage
 from marimo._output.formatters.formatters import register_formatters
 from marimo._runtime import requests, runtime
 from marimo._runtime.requests import (
     AppMetadata,
     CreationRequest,
+    ExecuteMultipleRequest,
     ExecutionRequest,
+    SerializedCLIArgs,
+    SerializedQueryParams,
     SetUIElementValueRequest,
 )
+from marimo._server.exceptions import InvalidSessionException
 from marimo._server.file_manager import AppFileManager
-from marimo._server.model import (
-    ConnectionState,
-    SessionConsumer,
-    SessionMode,
-)
+from marimo._server.file_router import AppFileRouter, MarimoFileKey
+from marimo._server.ids import ConsumerId, SessionId
+from marimo._server.model import ConnectionState, SessionConsumer, SessionMode
 from marimo._server.models.models import InstantiateRequest
+from marimo._server.recents import RecentFilesManager
 from marimo._server.session.session_view import SessionView
+from marimo._server.tokens import AuthToken, SkewProtectionToken
 from marimo._server.types import QueueType
-from marimo._server.utils import import_files, print_tabbed
+from marimo._server.utils import print_, print_tabbed
+from marimo._tracer import server_tracer
 from marimo._utils.disposable import Disposable
-from marimo._utils.distributor import Distributor
+from marimo._utils.distributor import (
+    ConnectionDistributor,
+    QueueDistributor,
+)
 from marimo._utils.file_watcher import FileWatcher
+from marimo._utils.paths import import_files
 from marimo._utils.repr import format_repr
 from marimo._utils.typed_connection import TypedConnection
 
 LOGGER = _loggers.marimo_logger()
-SESSION_MANAGER: Optional["SessionManager"] = None
-
-SessionId = str
 
 
 class QueueManager:
@@ -74,10 +91,25 @@ class QueueManager:
             context.Queue() if context is not None else queue.Queue()
         )
 
+        # Set UI element queues are stored in both the control queue and
+        # this queue, so that the backend can merge/batch set-ui-element
+        # requests.
+        self.set_ui_element_queue: QueueType[
+            requests.SetUIElementValueRequest
+        ] = context.Queue() if context is not None else queue.Queue()
+
         # Code completion requests are sent through a separate queue
-        self.completion_queue: QueueType[requests.CompletionRequest] = (
+        self.completion_queue: QueueType[requests.CodeCompletionRequest] = (
             context.Queue() if context is not None else queue.Queue()
         )
+
+        self.win32_interrupt_queue: QueueType[bool] | None
+        if sys.platform == "win32":
+            self.win32_interrupt_queue = (
+                context.Queue() if context is not None else queue.Queue()
+            )
+        else:
+            self.win32_interrupt_queue = None
 
         # Input messages for the user's Python code are sent through the
         # input queue
@@ -86,6 +118,11 @@ class QueueManager:
             if context is not None
             else queue.Queue(maxsize=1)
         )
+        self.stream_queue: Optional[
+            queue.Queue[Union[KernelMessage, None]]
+        ] = None
+        if not use_multiprocessing:
+            self.stream_queue = queue.Queue()
 
     def close_queues(self) -> None:
         if isinstance(self.control_queue, MPQueue):
@@ -99,6 +136,10 @@ class QueueManager:
             # exit; we don't join the thread because we don't want to block
             self.control_queue.put(requests.StopRequest())
 
+        if isinstance(self.set_ui_element_queue, MPQueue):
+            self.set_ui_element_queue.cancel_join_thread()
+            self.set_ui_element_queue.close()
+
         if isinstance(self.input_queue, MPQueue):
             # again, don't make the child process wait for the queues to empty
             self.input_queue.cancel_join_thread()
@@ -108,6 +149,10 @@ class QueueManager:
             self.completion_queue.cancel_join_thread()
             self.completion_queue.close()
 
+        if isinstance(self.win32_interrupt_queue, MPQueue):
+            self.win32_interrupt_queue.cancel_join_thread()
+            self.win32_interrupt_queue.close()
+
 
 class KernelManager:
     def __init__(
@@ -116,33 +161,50 @@ class KernelManager:
         mode: SessionMode,
         configs: dict[CellId_t, CellConfig],
         app_metadata: AppMetadata,
+        user_config_manager: MarimoConfigReader,
+        virtual_files_supported: bool,
+        redirect_console_to_browser: bool,
     ) -> None:
         self.kernel_task: Optional[threading.Thread] | Optional[mp.Process]
         self.queue_manager = queue_manager
         self.mode = mode
         self.configs = configs
         self.app_metadata = app_metadata
+        self.user_config_manager = user_config_manager
+        self.redirect_console_to_browser = redirect_console_to_browser
+
+        # Only used in edit mode
         self._read_conn: Optional[TypedConnection[KernelMessage]] = None
+        self._virtual_files_supported = virtual_files_supported
 
     def start_kernel(self) -> None:
-        # Need to use a socket for windows compatibility
-        listener = connection.Listener(family="AF_INET")
-
         # We use a process in edit mode so that we can interrupt the app
         # with a SIGINT; we don't mind the additional memory consumption,
         # since there's only one client sess
         is_edit_mode = self.mode == SessionMode.EDIT
+        listener = None
         if is_edit_mode:
+            # Need to use a socket for windows compatibility
+            listener = connection.Listener(family="AF_INET")
             self.kernel_task = mp.Process(
                 target=runtime.launch_kernel,
                 args=(
                     self.queue_manager.control_queue,
+                    self.queue_manager.set_ui_element_queue,
                     self.queue_manager.completion_queue,
                     self.queue_manager.input_queue,
+                    # stream queue unused
+                    None,
                     listener.address,
                     is_edit_mode,
                     self.configs,
                     self.app_metadata,
+                    self.user_config_manager.get_config(hide_secrets=False),
+                    self._virtual_files_supported,
+                    self.redirect_console_to_browser,
+                    self.queue_manager.win32_interrupt_queue,
+                    self.profile_path,
+                    GLOBAL_SETTINGS.LOG_LEVEL,
                 ),
                 # The process can't be a daemon, because daemonic processes
                 # can't create children
@@ -158,26 +220,39 @@ class KernelManager:
             # naturally exit before cleaning up resources
             def launch_kernel_with_cleanup(*args: Any) -> None:
                 runtime.launch_kernel(*args)
-                if not self.kernel_connection.closed:
-                    self.kernel_connection.close()
 
             # install formatter import hooks, which will be shared by all
             # threads (in edit mode, the single kernel process installs
             # formatters ...)
-            register_formatters()
+            register_formatters(
+                theme=self.user_config_manager.get_config()["display"]["theme"]
+            )
 
+            assert self.queue_manager.stream_queue is not None
             # Make threads daemons so killing the server immediately brings
             # down all client sessions
             self.kernel_task = threading.Thread(
                 target=launch_kernel_with_cleanup,
                 args=(
                     self.queue_manager.control_queue,
+                    self.queue_manager.set_ui_element_queue,
                     self.queue_manager.completion_queue,
                     self.queue_manager.input_queue,
-                    listener.address,
+                    self.queue_manager.stream_queue,
+                    # IPC not used in run mode
+                    None,
                     is_edit_mode,
                     self.configs,
                     self.app_metadata,
+                    self.user_config_manager.get_config(hide_secrets=False),
+                    self._virtual_files_supported,
+                    self.redirect_console_to_browser,
+                    # win32 interrupt queue
+                    None,
+                    # profile path
+                    None,
+                    # log level
+                    GLOBAL_SETTINGS.LOG_LEVEL,
                 ),
                 # daemon threads can create child processes, unlike
                 # daemon processes
@@ -185,9 +260,33 @@ class KernelManager:
             )
 
         self.kernel_task.start()  # type: ignore
-        # First thing kernel does is connect to the socket, so it's safe to
-        # call accept
-        self._read_conn = TypedConnection[KernelMessage].of(listener.accept())
+        if listener is not None:
+            # First thing kernel does is connect to the socket, so it's safe to
+            # call accept
+            self._read_conn = TypedConnection[KernelMessage].of(
+                listener.accept()
+            )
+
+    @property
+    def profile_path(self) -> str | None:
+        self._profile_path: str | None
+
+        if hasattr(self, "_profile_path"):
+            return self._profile_path
+
+        profile_dir = GLOBAL_SETTINGS.PROFILE_DIR
+        if profile_dir is not None:
+            self._profile_path = os.path.join(
+                profile_dir,
+                (
+                    os.path.basename(self.app_metadata.filename) + str(uuid4())
+                    if self.app_metadata.filename is not None
+                    else str(uuid4())
+                ),
+            )
+        else:
+            self._profile_path = None
+        return self._profile_path
 
     def is_alive(self) -> bool:
         return self.kernel_task is not None and self.kernel_task.is_alive()
@@ -197,17 +296,36 @@ class KernelManager:
             isinstance(self.kernel_task, mp.Process)
             and self.kernel_task.pid is not None
         ):
-            LOGGER.debug("Sending SIGINT to kernel")
-            os.kill(self.kernel_task.pid, signal.SIGINT)
+            q = self.queue_manager.win32_interrupt_queue
+            if sys.platform == "win32" and q is not None:
+                LOGGER.debug("Queueing interrupt request for kernel.")
+                q.put_nowait(True)
+            else:
+                LOGGER.debug("Sending SIGINT to kernel")
+                os.kill(self.kernel_task.pid, signal.SIGINT)
 
     def close_kernel(self) -> None:
         assert self.kernel_task is not None, "kernel not started"
 
         if isinstance(self.kernel_task, mp.Process):
+            if self.profile_path is not None and self.kernel_task.is_alive():
+                self.queue_manager.control_queue.put(requests.StopRequest())
+                # Hack: Wait for kernel to exit and write out profile;
+                # joining the process hangs, but not sure why.
+                print_(
+                    "\tWriting profile statistics to",
+                    self.profile_path,
+                    " ...",
+                )
+                while not os.path.exists(self.profile_path):
+                    time.sleep(0.1)
+                time.sleep(1)
+
             self.queue_manager.close_queues()
             if self.kernel_task.is_alive():
                 self.kernel_task.terminate()
-            self.kernel_connection.close()
+            if self._read_conn is not None:
+                self._read_conn.close()
         elif self.kernel_task.is_alive():
             # We don't join the kernel thread because we don't want to server
             # to block on it finishing
@@ -219,6 +337,78 @@ class KernelManager:
         return self._read_conn
 
 
+class Room:
+    """
+    A room is a collection of SessionConsumers
+    that can be used to broadcast messages to all
+    of them.
+    """
+
+    def __init__(self) -> None:
+        self.main_consumer: Optional[SessionConsumer] = None
+        self.consumers: Dict[SessionConsumer, ConsumerId] = {}
+        self.disposables: Dict[SessionConsumer, Disposable] = {}
+
+    @property
+    def size(self) -> int:
+        return len(self.consumers)
+
+    def add_consumer(
+        self,
+        consumer: SessionConsumer,
+        dispose: Disposable,
+        consumer_id: ConsumerId,
+        # Whether the consumer is the main session consumer
+        # We only allow one main consumer, the rest are kiosk consumers
+        main: bool,
+    ) -> None:
+        self.consumers[consumer] = consumer_id
+        self.disposables[consumer] = dispose
+        if main:
+            assert (
+                self.main_consumer is None
+            ), "Main session consumer already exists"
+            self.main_consumer = consumer
+
+    def remove_consumer(self, consumer: SessionConsumer) -> None:
+        if consumer not in self.consumers:
+            LOGGER.debug(
+                "Attempted to remove a consumer that was not in room."
+            )
+            return
+
+        if consumer == self.main_consumer:
+            self.main_consumer = None
+        self.consumers.pop(consumer)
+        disposable = self.disposables.pop(consumer)
+        try:
+            consumer.on_stop()
+        finally:
+            disposable.dispose()
+
+    def broadcast(
+        self,
+        operation: MessageOperation,
+        except_consumer: Optional[ConsumerId],
+    ) -> None:
+        for consumer in self.consumers:
+            if consumer.consumer_id == except_consumer:
+                continue
+            if consumer.connection_state() == ConnectionState.OPEN:
+                consumer.write_operation(operation)
+
+    def close(self) -> None:
+        for consumer in self.consumers:
+            disposable = self.disposables.pop(consumer)
+            consumer.on_stop()
+            disposable.dispose()
+        self.consumers = {}
+        self.main_consumer = None
+
+
+_DEFAULT_TTL_SECONDS = 120
+
+
 class Session:
     """A client session.
 
@@ -226,127 +416,237 @@ class Session:
     and its own websocket, for sending messages to the client.
     """
 
-    TTL_SECONDS = 120
-
     @classmethod
     def create(
         cls,
+        initialization_id: str,
         session_consumer: SessionConsumer,
         mode: SessionMode,
         app_metadata: AppMetadata,
         app_file_manager: AppFileManager,
+        user_config_manager: MarimoConfigReader,
+        virtual_files_supported: bool,
+        redirect_console_to_browser: bool,
+        ttl_seconds: Optional[int],
     ) -> Session:
+        """
+        Create a new session.
+        """
         configs = app_file_manager.app.cell_manager.config_map()
         use_multiprocessing = mode == SessionMode.EDIT
         queue_manager = QueueManager(use_multiprocessing)
         kernel_manager = KernelManager(
-            queue_manager, mode, configs, app_metadata
+            queue_manager,
+            mode,
+            configs,
+            app_metadata,
+            user_config_manager,
+            virtual_files_supported=virtual_files_supported,
+            redirect_console_to_browser=redirect_console_to_browser,
         )
         return cls(
+            initialization_id,
             session_consumer,
             queue_manager,
             kernel_manager,
             app_file_manager,
+            ttl_seconds,
         )
 
     def __init__(
         self,
+        initialization_id: str,
         session_consumer: SessionConsumer,
         queue_manager: QueueManager,
         kernel_manager: KernelManager,
         app_file_manager: AppFileManager,
+        ttl_seconds: Optional[int],
     ) -> None:
         """Initialize kernel and client connection to it."""
-        self._queue_manager: QueueManager
+        # This is some unique ID that we can use to identify the session
+        # in edit mode. We don't use the session_id because this can change if
+        # the session is resumed
+        self.initialization_id = initialization_id
         self.app_file_manager = app_file_manager
-        # This can be optional in case a consumer gets disconnected,
-        # and we want to continue the session without a consumer.
-        self.session_consumer: Optional[SessionConsumer] = None
+        self.room = Room()
         self._queue_manager = queue_manager
         self.kernel_manager = kernel_manager
+        self.ttl_seconds = (
+            ttl_seconds if ttl_seconds is not None else _DEFAULT_TTL_SECONDS
+        )
         self.session_view = SessionView()
 
         self.kernel_manager.start_kernel()
         # Reads from the kernel connection and distributes the
         # messages to each subscriber.
-        self.message_distributor = Distributor[KernelMessage](
-            self.kernel_manager.kernel_connection
+        self.message_distributor: (
+            ConnectionDistributor[KernelMessage]
+            | QueueDistributor[KernelMessage]
         )
+        if self.kernel_manager.mode == SessionMode.EDIT:
+            self.message_distributor = ConnectionDistributor[KernelMessage](
+                self.kernel_manager.kernel_connection
+            )
+        else:
+            q = self._queue_manager.stream_queue
+            assert q is not None
+            self.message_distributor = QueueDistributor[KernelMessage](queue=q)
+
         self.message_distributor.add_consumer(
             lambda msg: self.session_view.add_raw_operation(msg[1])
         )
-        self.connect_consumer(session_consumer)
+        self.connect_consumer(session_consumer, main=True)
         self.message_distributor.start()
 
-    def _check_alive(self) -> None:
-        if not self.kernel_manager.is_alive():
-            LOGGER.debug("Closing session because kernel died")
-            self.close()
-            print()
-            print_tabbed("\033[31mThe Python kernel died unexpectedly.\033[0m")
-            print()
-            sys.exit()
+        self.heartbeat_task: Optional[asyncio.Task[Any]] = None
+        self._start_heartbeat()
+        self._closed = False
+
+    def _start_heartbeat(self) -> None:
+        def _check_alive() -> None:
+            if not self.kernel_manager.is_alive():
+                LOGGER.debug(
+                    "Closing session %s because kernel died",
+                    self.initialization_id,
+                )
+                self.close()
+                print_()
+                print_tabbed(
+                    red(
+                        "The Python kernel for file "
+                        f"{self.app_file_manager.filename} died unexpectedly."
+                    )
+                )
+                print_()
+                self.close()
+
+        # Start a heartbeat task, which checks if the kernel is alive
+        # every second
+
+        async def _heartbeat() -> None:
+            while True:
+                await asyncio.sleep(1)
+                _check_alive()
+
+        try:
+            loop = asyncio.get_event_loop()
+            self.heartbeat_task = loop.create_task(_heartbeat())
+        except RuntimeError:
+            # This can happen if there is no event loop running
+            self.heartbeat_task = None
 
     def try_interrupt(self) -> None:
+        """Try to interrupt the kernel."""
         self.kernel_manager.interrupt_kernel()
 
-    def put_control_request(self, request: requests.ControlRequest) -> None:
+    def put_control_request(
+        self,
+        request: requests.ControlRequest,
+        from_consumer_id: Optional[ConsumerId],
+    ) -> None:
+        """Put a control request in the control queue."""
         self._queue_manager.control_queue.put(request)
+        if isinstance(request, SetUIElementValueRequest):
+            self._queue_manager.set_ui_element_queue.put(request)
+        # Propagate the control request to the room
+        if isinstance(request, ExecuteMultipleRequest):
+            self.room.broadcast(
+                UpdateCellCodes(
+                    cell_ids=request.cell_ids,
+                    codes=request.codes,
+                ),
+                except_consumer=from_consumer_id,
+            )
+            if len(request.cell_ids) == 1:
+                self.room.broadcast(
+                    FocusCell(cell_id=request.cell_ids[0]),
+                    except_consumer=from_consumer_id,
+                )
         self.session_view.add_control_request(request)
 
     def put_completion_request(
-        self, request: requests.CompletionRequest
+        self, request: requests.CodeCompletionRequest
     ) -> None:
+        """Put a code completion request in the completion queue."""
         self._queue_manager.completion_queue.put(request)
 
     def put_input(self, text: str) -> None:
+        """Put an input() request in the input queue."""
         self._queue_manager.input_queue.put(text)
         self.session_view.add_stdin(text)
 
-    def disconnect_consumer(self) -> None:
-        """Stop the session consumer but keep the kernel running"""
-        assert (
-            self.session_consumer is not None
-        ), "Expecting a session consumer to pause"
-        LOGGER.debug("Disconnecting session consumer")
-        self.session_consumer.on_stop()
-        self.unsubscribe_consumer()
-        self.session_consumer = None
+    def disconnect_consumer(self, session_consumer: SessionConsumer) -> None:
+        """
+        Stop the session consumer but keep the kernel running.
 
-    def connect_consumer(self, session_consumer: SessionConsumer) -> None:
-        """Connect or resume the session with a new consumer"""
-        assert (
-            self.session_consumer is None
-        ), "Expecting no existing session consumer"
+        This will disconnect the main session consumer,
+        or a kiosk consumer.
+        """
+        self.room.remove_consumer(session_consumer)
 
-        self.session_consumer = session_consumer
+    def maybe_disconnect_consumer(self) -> None:
+        """
+        Disconnect the main session consumer if it connected.
+        """
+        if self.room.main_consumer is not None:
+            self.disconnect_consumer(self.room.main_consumer)
 
-        subscribe = self.session_consumer.on_start(self._check_alive)
-        self.unsubscribe_consumer = self.message_distributor.add_consumer(
-            subscribe
+    def connect_consumer(
+        self, session_consumer: SessionConsumer, *, main: bool
+    ) -> None:
+        """
+        Connect or resume the session with a new consumer.
+
+        If its the main consumer and one already exists,
+        an exception is raised.
+        """
+        subscribe = session_consumer.on_start()
+        unsubscribe_consumer = self.message_distributor.add_consumer(subscribe)
+        self.room.add_consumer(
+            session_consumer,
+            unsubscribe_consumer,
+            session_consumer.consumer_id,
+            main=main,
         )
 
     def get_current_state(self) -> SessionView:
+        """Return the current state of the session."""
         return self.session_view
 
     def connection_state(self) -> ConnectionState:
-        if self.session_consumer is None:
+        """Return the connection state of the session."""
+        if self._closed:
+            return ConnectionState.CLOSED
+        if self.room.main_consumer is None:
             return ConnectionState.ORPHANED
-        return self.session_consumer.connection_state()
+        return self.room.main_consumer.connection_state()
 
-    async def write_operation(self, operation: MessageOperation) -> None:
+    def write_operation(
+        self,
+        operation: MessageOperation,
+        from_consumer_id: Optional[ConsumerId],
+    ) -> None:
+        """Write an operation to the session consumer and the session view."""
         self.session_view.add_operation(operation)
-        if self.session_consumer is not None:
-            await self.session_consumer.write_operation(operation)
+        self.room.broadcast(operation, except_consumer=from_consumer_id)
 
     def close(self) -> None:
-        # Could be no consumer if we already disconnect, but the session
-        # is running in the background
-        if self.session_consumer is not None:
-            self.session_consumer.on_stop()
+        """
+        Close the session.
+
+        This will close the session consumer, kernel, and all kiosk consumers.
+        """
+        if self._closed:
+            return
+
+        self._closed = True
+        # Close the room
+        self.room.close()
+        # Close the kernel
         self.message_distributor.stop()
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
         self.kernel_manager.close_kernel()
-        self.unsubscribe_consumer()
 
     def instantiate(self, request: InstantiateRequest) -> None:
         """Instantiate the app."""
@@ -359,9 +659,13 @@ class Session:
             CreationRequest(
                 execution_requests=execution_requests,
                 set_ui_element_value_request=SetUIElementValueRequest(
-                    request.zip(),
+                    object_ids=request.object_ids,
+                    values=request.values,
+                    token=str(uuid4()),
                 ),
-            )
+                auto_run=request.auto_run,
+            ),
+            from_consumer_id=None,
         )
 
     def __repr__(self) -> str:
@@ -369,7 +673,7 @@ class Session:
             self,
             {
                 "connection_state": self.connection_state(),
-                "consumer": self.session_consumer,
+                "room": self.room,
             },
         )
 
@@ -383,82 +687,133 @@ class SessionManager:
     The SessionManager also encapsulates state common to all sessions:
     - the app filename
     - the app mode (edit or run)
-    - the server token
+    - the auth token
+    - the skew-protection token
     """
 
     def __init__(
         self,
-        filename: Optional[str],
+        file_router: AppFileRouter,
         mode: SessionMode,
         development_mode: bool,
         quiet: bool,
         include_code: bool,
         lsp_server: LspServer,
+        user_config_manager: MarimoConfigReader,
+        cli_args: SerializedCLIArgs,
+        auth_token: Optional[AuthToken],
+        redirect_console_to_browser: bool,
+        ttl_seconds: Optional[int],
     ) -> None:
-        self.filename = filename
+        self.file_router = file_router
         self.mode = mode
         self.development_mode = development_mode
         self.quiet = quiet
-        self.sessions: dict[str, Session] = {}
+        self.sessions: dict[SessionId, Session] = {}
         self.include_code = include_code
+        self.ttl_seconds = ttl_seconds
         self.lsp_server = lsp_server
         self.watcher: Optional[FileWatcher] = None
+        self.recents = RecentFilesManager()
+        self.user_config_manager = user_config_manager
+        self.cli_args = cli_args
+        self.redirect_console_to_browser = redirect_console_to_browser
 
-        app = self._load_app()
-
-        self.app_metadata = AppMetadata(filename=self.path)
-
-        if mode == SessionMode.EDIT:
-            # In edit mode, the server gets a random token to prevent
-            # frontends that it didn't create from connecting to it and
-            # executing edit-only commands (such as overwriting the file).
-            self.server_token = str(uuid4())
+        # Auth token and Skew-protection token
+        if auth_token is not None:
+            self.auth_token = auth_token
+            self.skew_protection_token = SkewProtectionToken.random()
+        elif mode == SessionMode.EDIT:
+            # In edit mode, if no auth token is provided,
+            # generate a random token
+            self.auth_token = AuthToken.random()
+            self.skew_protection_token = SkewProtectionToken.random()
         else:
-            # Because run-mode is read-only, all that matters is that
-            # the frontend's app matches the server's app.
-            self.server_token = str(
-                hash("".join(code for code in app.cell_manager.codes()))
-            )
+            app = file_router.get_single_app_file_manager(
+                default_width=user_config_manager.get_config()["display"][
+                    "default_width"
+                ]
+            ).app
+            codes = "".join(code for code in app.cell_manager.codes())
+            # Because run-mode is read-only and we could have multiple
+            # servers for the same app (going to sleep or autoscaling),
+            # we default to a token based on the app's code
+            self.auth_token = AuthToken.from_code(codes)
+            self.skew_protection_token = SkewProtectionToken.from_code(codes)
 
-    def _load_app(self) -> InternalApp:
+    def app_manager(self, key: MarimoFileKey) -> AppFileManager:
         """
-        Load the app from the current file.
-        Otherwise, return an empty app.
+        Get the app manager for the given key.
         """
-        return AppFileManager(self.path).app
-
-    def app_config(self) -> _AppConfig:
-        """Read the app's configuration from the file."""
-        return self._load_app().config
-
-    def rename(self, filename: Optional[str]) -> None:
-        """Register a change in filename.
-
-        Should be called if an api call renamed the current file on disk,
-        or opened another file.
-        """
-        self.filename = filename
-        self.app_metadata.filename = self.path
+        return self.file_router.get_file_manager(
+            key,
+            default_width=self.user_config_manager.get_config()["display"][
+                "default_width"
+            ],
+        )
 
     def create_session(
-        self, session_id: SessionId, session_consumer: SessionConsumer
+        self,
+        session_id: SessionId,
+        session_consumer: SessionConsumer,
+        query_params: SerializedQueryParams,
+        file_key: MarimoFileKey,
     ) -> Session:
         """Create a new session"""
         LOGGER.debug("Creating new session for id %s", session_id)
         if session_id not in self.sessions:
+            app_file_manager = self.file_router.get_file_manager(
+                file_key,
+                default_width=self.user_config_manager.get_config()["display"][
+                    "default_width"
+                ],
+            )
+
+            if app_file_manager.path:
+                self.recents.touch(app_file_manager.path)
+
             self.sessions[session_id] = Session.create(
+                initialization_id=file_key,
                 session_consumer=session_consumer,
                 mode=self.mode,
-                app_metadata=self.app_metadata,
-                app_file_manager=AppFileManager(self.path),
+                app_metadata=AppMetadata(
+                    query_params=query_params,
+                    filename=app_file_manager.path,
+                    cli_args=self.cli_args,
+                ),
+                app_file_manager=app_file_manager,
+                user_config_manager=self.user_config_manager,
+                virtual_files_supported=True,
+                redirect_console_to_browser=self.redirect_console_to_browser,
+                ttl_seconds=self.ttl_seconds,
             )
         return self.sessions[session_id]
 
     def get_session(self, session_id: SessionId) -> Optional[Session]:
-        return self.sessions.get(session_id)
+        session = self.sessions.get(session_id)
+        if session:
+            return session
+
+        # Search for kiosk sessions
+        for session in self.sessions.values():
+            if session_id in session.room.consumers.values():
+                return session
+
+        return None
+
+    def get_session_by_file_key(
+        self, file_key: MarimoFileKey
+    ) -> Optional[Session]:
+        for session in self.sessions.values():
+            if (
+                session.initialization_id == file_key
+                or session.app_file_manager.path == os.path.abspath(file_key)
+            ):
+                return session
+        return None
 
     def maybe_resume_session(
-        self, new_session_id: SessionId
+        self, new_session_id: SessionId, file_key: MarimoFileKey
     ) -> Optional[Session]:
         """
         Try to resume a session if one is resumable.
@@ -481,13 +836,28 @@ class SessionManager:
                 return maybe_session
             return None
 
-        if len(self.sessions) == 0:
-            return None
-        if len(self.sessions) > 1:
-            raise Exception("Only one session should exist while editing")
+        # Cleanup sessions with dead kernels; materializing as a list because
+        # close_sessions mutates self.sessions
+        for session_id, session in list(self.sessions.items()):
+            task = session.kernel_manager.kernel_task
+            if task is not None and not task.is_alive():
+                self.close_session(session_id)
 
         # Should only return an orphaned session
-        (session_id, session) = list(self.sessions.items())[0]
+        sessions_with_the_same_file: dict[SessionId, Session] = {
+            session_id: session
+            for session_id, session in self.sessions.items()
+            if session.app_file_manager.path == os.path.abspath(file_key)
+        }
+
+        if len(sessions_with_the_same_file) == 0:
+            return None
+        if len(sessions_with_the_same_file) > 1:
+            raise InvalidSessionException(
+                "Only one session should exist while editing"
+            )
+
+        (session_id, session) = next(iter(sessions_with_the_same_file.items()))
         connection_state = session.connection_state()
         if connection_state == ConnectionState.ORPHANED:
             LOGGER.debug(
@@ -506,19 +876,15 @@ class SessionManager:
         )
         return None
 
-    @property
-    def path(self) -> Optional[str]:
-        if self.filename is None:
-            return None
-        try:
-            return os.path.abspath(self.filename)
-        except AttributeError:
-            return None
-
-    def any_clients_connected(self) -> bool:
+    def any_clients_connected(self, key: MarimoFileKey) -> bool:
         """Returns True if at least one client has an open socket."""
+        if key.startswith(AppFileRouter.NEW_FILE):
+            return False
+
         for session in self.sessions.values():
-            if session.connection_state() == ConnectionState.OPEN:
+            if session.connection_state() == ConnectionState.OPEN and (
+                session.app_file_manager.path == os.path.abspath(key)
+            ):
                 return True
         return False
 
@@ -528,22 +894,24 @@ class SessionManager:
         Doesn't start in run mode.
         """
         if self.mode == SessionMode.RUN:
-            LOGGER.warn("Cannot start LSP server in run mode")
+            LOGGER.warning("Cannot start LSP server in run mode")
             return
 
         alert = self.lsp_server.start()
 
         if alert is not None:
             for _, session in self.sessions.items():
-                await session.write_operation(alert)
+                session.write_operation(alert, from_consumer_id=None)
             return
 
-    def close_session(self, session_id: SessionId) -> None:
+    def close_session(self, session_id: SessionId) -> bool:
         LOGGER.debug("Closing session %s", session_id)
         session = self.get_session(session_id)
         if session is not None:
             session.close()
             del self.sessions[session_id]
+            return True
+        return False
 
     def close_all_sessions(self) -> None:
         LOGGER.debug("Closing all sessions (sessions: %s)", self.sessions)
@@ -571,24 +939,33 @@ class SessionManager:
             # - what to do if the file is deleted, or is renamed
             # - do we re-run the app or just show the changed code
             # - we don't properly handle saving from the frontend
-            LOGGER.warn("Cannot start file watcher in edit mode")
+            LOGGER.warning("Cannot start file watcher in edit mode")
+            return Disposable.empty()
+        file = self.file_router.maybe_get_single_file()
+        if not file:
             return Disposable.empty()
 
-        file_path = self.path
-        if file_path is None:
-            LOGGER.warn("Cannot start file watcher without a filename")
-            return Disposable.empty()
+        file_path = file.path
 
         async def on_file_changed(path: Path) -> None:
             LOGGER.debug(f"{path} was modified")
             for _, session in self.sessions.items():
                 session.app_file_manager.reload()
-                await session.write_operation(Reload())
+                session.write_operation(Reload(), from_consumer_id=None)
 
         LOGGER.debug("Starting file watcher for %s", file_path)
         self.watcher = FileWatcher.create(Path(file_path), on_file_changed)
         self.watcher.start()
         return Disposable(self.watcher.stop)
+
+    def get_active_connection_count(self) -> int:
+        return len(
+            [
+                session
+                for session in self.sessions.values()
+                if session.connection_state() == ConnectionState.OPEN
+            ]
+        )
 
 
 class LspServer:
@@ -596,6 +973,7 @@ class LspServer:
         self.port = port
         self.process: Optional[subprocess.Popen[bytes]] = None
 
+    @server_tracer.start_as_current_span("lsp_server.start")
     def start(self) -> Optional[Alert]:
         if self.process is not None:
             LOGGER.debug("LSP server already started")
@@ -617,6 +995,13 @@ class LspServer:
                 str(import_files("marimo").joinpath("_lsp")),
                 "index.js",
             )
+
+            # Check if the LSP binary exists
+            if not os.path.exists(lsp_bin):
+                # Only debug since this may not exist in conda environments
+                LOGGER.debug("LSP binary not found at %s", lsp_bin)
+                return None
+
             cmd = f"node {lsp_bin} --port {self.port}"
             LOGGER.debug("... running command: %s", cmd)
             self.process = subprocess.Popen(
@@ -652,28 +1037,23 @@ class LspServer:
             LOGGER.debug("LSP server not running")
 
 
-def initialize_manager(
-    filename: Optional[str],
-    mode: SessionMode,
-    port: int,
-    development_mode: bool,
-    quiet: bool,
-    include_code: bool,
-) -> SessionManager:
-    """Must be called on server start."""
-    global SESSION_MANAGER
-    SESSION_MANAGER = SessionManager(
-        filename=filename,
-        mode=mode,
-        development_mode=development_mode,
-        quiet=quiet,
-        include_code=include_code,
-        lsp_server=LspServer(port * 10),
-    )
-    return SESSION_MANAGER
+class NoopLspServer(LspServer):
+    def __init__(self) -> None:
+        super().__init__(0)
+
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
 
 
-def get_manager() -> SessionManager:
-    """Cannot be called until manager has been initialized."""
-    assert SESSION_MANAGER is not None
-    return SESSION_MANAGER
+def send_message_to_consumer(
+    session: Session,
+    operation: MessageOperation,
+    consumer_id: Optional[ConsumerId],
+) -> None:
+    if session.connection_state() == ConnectionState.OPEN:
+        for consumer, c_id in session.room.consumers.items():
+            if c_id == consumer_id:
+                consumer.write_operation(operation)

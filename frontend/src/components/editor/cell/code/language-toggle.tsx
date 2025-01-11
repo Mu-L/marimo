@@ -1,50 +1,139 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import {
-  languageAdapterState,
-  switchLanguage,
-} from "@/core/codemirror/language/extension";
-import { EditorView } from "@codemirror/view";
-import React, { useState } from "react";
+import { switchLanguage } from "@/core/codemirror/language/extension";
+import type { EditorView } from "@codemirror/view";
+import type React from "react";
 import { MarkdownIcon, PythonIcon } from "./icons";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
-import { startCase } from "lodash-es";
+import type { LanguageAdapter } from "@/core/codemirror/language/types";
+import { DatabaseIcon } from "lucide-react";
+import { useMemo } from "react";
+import { MarkdownLanguageAdapter } from "@/core/codemirror/language/markdown";
+import { SQLLanguageAdapter } from "@/core/codemirror/language/sql";
+import { Functions } from "@/utils/functions";
+
+interface LanguageTogglesProps {
+  editorView: EditorView | null;
+  code: string;
+  currentLanguageAdapter: LanguageAdapter["type"] | undefined;
+  onAfterToggle: () => void;
+}
+
+export const LanguageToggles: React.FC<LanguageTogglesProps> = ({
+  editorView,
+  code,
+  currentLanguageAdapter,
+  onAfterToggle,
+}) => {
+  const canUseMarkdown = useMemo(
+    () => new MarkdownLanguageAdapter().isSupported(code) || code.trim() === "",
+    [code],
+  );
+  const canUseSQL = useMemo(
+    () => new SQLLanguageAdapter().isSupported(code) || code.trim() === "",
+    [code],
+  );
+
+  return (
+    <div className="absolute right-3 top-2 z-20 flex hover-action gap-1">
+      <LanguageToggle
+        editorView={editorView}
+        currentLanguageAdapter={currentLanguageAdapter}
+        canSwitchToLanguage={canUseSQL && currentLanguageAdapter === "python"}
+        icon={
+          <DatabaseIcon
+            color={"var(--sky-11)"}
+            strokeWidth={2.5}
+            className="w-4 h-4"
+          />
+        }
+        toType="sql"
+        displayName="SQL"
+        onAfterToggle={onAfterToggle}
+      />
+      <LanguageToggle
+        editorView={editorView}
+        currentLanguageAdapter={currentLanguageAdapter}
+        canSwitchToLanguage={
+          canUseMarkdown && currentLanguageAdapter === "python"
+        }
+        icon={
+          <MarkdownIcon
+            fill={"var(--sky-11)"}
+            color="black"
+            className="w-4 h-4"
+          />
+        }
+        toType="markdown"
+        displayName="Markdown"
+        onAfterToggle={onAfterToggle}
+      />
+      <LanguageToggle
+        editorView={editorView}
+        currentLanguageAdapter={currentLanguageAdapter}
+        canSwitchToLanguage={true}
+        icon={
+          <PythonIcon
+            fill={"var(--sky-11)"}
+            color="black"
+            className="w-4 h-4"
+          />
+        }
+        toType="python"
+        displayName="Python"
+        onAfterToggle={Functions.NOOP}
+      />
+    </div>
+  );
+};
 
 interface Props {
-  editorView: EditorView;
-  canUseMarkdown: boolean;
+  className?: string;
+  editorView: EditorView | null;
+  canSwitchToLanguage: boolean;
+  currentLanguageAdapter: LanguageAdapter["type"] | undefined;
+  toType: LanguageAdapter["type"];
+  displayName: string;
+  icon: React.ReactNode;
+  onAfterToggle: () => void;
 }
 
 export const LanguageToggle: React.FC<Props> = ({
   editorView,
-  canUseMarkdown,
+  currentLanguageAdapter,
+  canSwitchToLanguage,
+  icon,
+  toType,
+  displayName,
+  onAfterToggle,
 }) => {
-  const [languageAdapter, setLanguageAdapter] = useState(
-    editorView.state.field(languageAdapterState).type,
-  );
+  const handleClick = () => {
+    if (!editorView) {
+      return;
+    }
+    switchLanguage(editorView, toType);
+    onAfterToggle();
+  };
 
-  if (!canUseMarkdown && languageAdapter !== "markdown") {
+  if (!canSwitchToLanguage) {
     return null;
   }
 
-  const otherLanguage = languageAdapter === "markdown" ? "python" : "markdown";
-  const Icon = languageAdapter === "markdown" ? PythonIcon : MarkdownIcon;
+  if (currentLanguageAdapter === toType) {
+    return null;
+  }
 
   return (
-    <div className="absolute top-0 right-5 z-20 hover-action">
-      <Tooltip content={`View as ${startCase(otherLanguage)}`}>
-        <Button variant="text" size="xs" className="opacity-80">
-          <Icon
-            className="cursor-pointer"
-            fill={"var(--sky-11)"}
-            fontSize={20}
-            onClick={() => {
-              setLanguageAdapter(otherLanguage);
-              switchLanguage(editorView, otherLanguage);
-            }}
-          />
-        </Button>
-      </Tooltip>
-    </div>
+    <Tooltip content={`View as ${displayName}`}>
+      <Button
+        data-testid="language-toggle-button"
+        variant="text"
+        size="xs"
+        className="opacity-80 px-1"
+        onClick={handleClick}
+      >
+        {icon}
+      </Button>
+    </Tooltip>
   );
 };

@@ -1,28 +1,40 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import React, { useLayoutEffect } from "react";
-import { OutputMessage } from "@/core/kernel/messages";
-import { formatOutput } from "../Output";
+import type { OutputMessage } from "@/core/kernel/messages";
+import { OutputRenderer } from "../Output";
 import { cn } from "@/utils/cn";
-import { DEFAULT_CELL_NAME } from "@/core/cells/names";
+import { isInternalCellName } from "@/core/cells/names";
 import { NameCellContentEditable } from "../actions/name-cell-input";
-import { CellId } from "@/core/cells/ids";
+import type { CellId } from "@/core/cells/ids";
 import { Input } from "@/components/ui/input";
 import { AnsiUp } from "ansi_up";
+import type { WithResponse } from "@/core/cells/types";
+import { invariant } from "@/utils/invariant";
 
 const ansiUp = new AnsiUp();
 
 interface Props {
   cellId: CellId;
   cellName: string;
-  consoleOutputs: OutputMessage[];
+  className?: string;
+  consoleOutputs: Array<WithResponse<OutputMessage>>;
   stale: boolean;
   debuggerActive: boolean;
+  onRefactorWithAI?: (opts: { prompt: string }) => void;
   onSubmitDebugger: (text: string, index: number) => void;
 }
 
 export const ConsoleOutput = (props: Props): React.ReactNode => {
   const ref = React.useRef<HTMLDivElement>(null);
-  const { consoleOutputs, stale, cellName, cellId, onSubmitDebugger } = props;
+  const {
+    consoleOutputs,
+    stale,
+    cellName,
+    cellId,
+    onSubmitDebugger,
+    onRefactorWithAI,
+    className,
+  } = props;
 
   /* The debugger UI needs some work. For now just use the regular
   /* console output. */
@@ -59,15 +71,9 @@ export const ConsoleOutput = (props: Props): React.ReactNode => {
     }
   });
 
-  if (!hasOutputs && cellName === DEFAULT_CELL_NAME) {
+  if (!hasOutputs && isInternalCellName(cellName)) {
     return null;
   }
-
-  const renderText = (text: string) => {
-    return (
-      <span dangerouslySetInnerHTML={{ __html: ansiUp.ansi_to_html(text) }} />
-    );
-  };
 
   const reversedOutputs = [...consoleOutputs].reverse();
 
@@ -80,6 +86,7 @@ export const ConsoleOutput = (props: Props): React.ReactNode => {
         "console-output-area overflow-hidden rounded-b-lg flex flex-col-reverse w-full",
         stale && "marimo-output-stale",
         hasOutputs ? "p-5" : "p-3",
+        className,
       )}
     >
       {reversedOutputs.map((output, idx) => {
@@ -88,44 +95,90 @@ export const ConsoleOutput = (props: Props): React.ReactNode => {
         }
 
         if (output.channel === "stdin") {
+          invariant(
+            typeof output.data === "string",
+            "Expected data to be a string",
+          );
+
+          const originalIdx = consoleOutputs.length - idx - 1;
+
           if (output.response == null) {
             return (
-              <div key={idx} className="flex gap-2 items-center">
-                {renderText(output.data)}
-                <Input
-                  type="text"
-                  autoComplete="off"
-                  autoFocus={true}
-                  className="m-0"
-                  placeholder="stdin"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      onSubmitDebugger(e.currentTarget.value, idx);
-                    }
-                  }}
-                />
-              </div>
+              <StdInput
+                key={idx}
+                output={output.data}
+                onSubmit={(text) => onSubmitDebugger(text, originalIdx)}
+              />
             );
           }
+
           return (
-            <div key={idx} className="flex gap-2 items-center">
-              {renderText(output.data)}
-              <span className="text-[var(--sky-11)]">{output.response}</span>
-            </div>
+            <StdInputWithResponse
+              key={idx}
+              output={output.data}
+              response={output.response}
+            />
           );
         }
 
         return (
           <React.Fragment key={idx}>
-            {formatOutput({ message: output })}
+            <OutputRenderer
+              cellId={cellId}
+              onRefactorWithAI={onRefactorWithAI}
+              message={output}
+            />
           </React.Fragment>
         );
       })}
       <NameCellContentEditable
         value={cellName}
         cellId={cellId}
-        className="bg-[var(--slate-4)] border-[var(--slate-4)] hover:bg-[var(--slate-5)] dark:bg-[var(--sky-5)] dark:border-[var(--sky-5)] dark:bg-[var(--sky-6)] dark:text-[var(--sky-12)] text-[var(--slate-12)] rounded-tl rounded-br-lg absolute right-0 bottom-0 text-xs px-1.5 py-0.5 font-mono"
+        className="bg-[var(--slate-4)] border-[var(--slate-4)] hover:bg-[var(--slate-5)] dark:border-[var(--sky-5)] dark:bg-[var(--sky-6)] dark:text-[var(--sky-12)] text-[var(--slate-12)] rounded-tl rounded-br-lg absolute right-0 bottom-0 text-xs px-1.5 py-0.5 font-mono"
       />
     </div>
+  );
+};
+
+const StdInput = (props: {
+  onSubmit: (text: string) => void;
+  output: string;
+  response?: string;
+}) => {
+  return (
+    <div className="flex gap-2 items-center">
+      {renderText(props.output)}
+      <Input
+        data-testid="console-input"
+        type="text"
+        autoComplete="off"
+        autoFocus={true}
+        className="m-0"
+        placeholder="stdin"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            props.onSubmit(e.currentTarget.value);
+          }
+        }}
+      />
+    </div>
+  );
+};
+
+const StdInputWithResponse = (props: {
+  output: string;
+  response?: string;
+}) => {
+  return (
+    <div className="flex gap-2 items-center">
+      {renderText(props.output)}
+      <span className="text-[var(--sky-11)]">{props.response}</span>
+    </div>
+  );
+};
+
+const renderText = (text: string) => {
+  return (
+    <span dangerouslySetInnerHTML={{ __html: ansiUp.ansi_to_html(text) }} />
   );
 };

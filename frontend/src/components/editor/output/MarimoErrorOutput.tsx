@@ -2,7 +2,7 @@
 
 import { cn } from "../../../utils/cn";
 import { logNever } from "../../../utils/assertNever";
-import { MarimoError } from "../../../core/kernel/messages";
+import type { MarimoError } from "../../../core/kernel/messages";
 import { Alert } from "../../ui/alert";
 import { AlertTitle } from "../../ui/alert";
 
@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/accordion";
 import { Fragment } from "react";
 import { CellLinkError } from "../links/cell-link";
+import type { CellId } from "@/core/cells/ids";
+import { AutoFixButton } from "../errors/auto-fix";
 
 const Tip = (props: {
   className?: string;
@@ -21,22 +23,16 @@ const Tip = (props: {
 }): JSX.Element => {
   return (
     <Accordion type="single" collapsible={true} className={props.className}>
-      <AccordionItem
-        value="item-1"
-        className="text-muted-foreground border-muted-foreground-20"
-      >
-        <AccordionTrigger className="py-2 text-[0.84375rem]">
-          Tip:
-        </AccordionTrigger>
-        <AccordionContent className="text-[0.84375rem]">
-          {props.children}
-        </AccordionContent>
+      <AccordionItem value="item-1" className="text-muted-foreground">
+        <AccordionTrigger className="py-2">Tip:</AccordionTrigger>
+        <AccordionContent>{props.children}</AccordionContent>
       </AccordionItem>
     </Accordion>
   );
 };
 
 interface Props {
+  cellId: CellId | undefined;
   errors: MarimoError[];
   className?: string;
 }
@@ -46,6 +42,7 @@ interface Props {
  */
 export const MarimoErrorOutput = ({
   errors,
+  cellId,
   className,
 }: Props): JSX.Element => {
   let titleContents = "This cell wasn't run because it has errors";
@@ -61,13 +58,17 @@ export const MarimoErrorOutput = ({
       case "cycle":
         return (
           <Fragment key={idx}>
-            <p className="mt-4">{"This cell is in a cycle:"}</p>
+            <p>{"This cell is in a cycle:"}</p>
             <ul className="list-disc">
-              {error.edges.map((edge) => (
+              {error.edges_with_vars.map((edge) => (
                 <li className={liStyle} key={`${edge[0]}-${edge[1]}`}>
-                  <CellLinkError cellId={edge[0]} />
-                  {" -> "}
-                  <CellLinkError cellId={edge[1]} />
+                  <CellLinkError cellId={edge[0] as CellId} />
+                  <span className="text-muted-foreground">
+                    {" -> "}
+                    {edge[1].length === 1 ? edge[1] : edge[1].join(", ")}
+                    {" -> "}
+                  </span>
+                  <CellLinkError cellId={edge[2] as CellId} />
                 </li>
               ))}
             </ul>
@@ -78,13 +79,11 @@ export const MarimoErrorOutput = ({
       case "multiple-defs":
         return (
           <Fragment key={idx}>
-            <p className="mt-4">
-              {`The variable '${error.name}' was defined by another cell:`}
-            </p>
+            <p>{`The variable '${error.name}' was defined by another cell:`}</p>
             <ul className="list-disc">
               {error.cells.map((cid) => (
                 <li className={liStyle} key={cid}>
-                  <CellLinkError cellId={cid} />
+                  <CellLinkError cellId={cid as CellId} />
                 </li>
               ))}
             </ul>
@@ -99,10 +98,9 @@ export const MarimoErrorOutput = ({
       case "delete-nonlocal":
         return (
           <Fragment key={idx}>
-            <div className="mt-4">
-              {`The variable '${error.name}' can't be deleted because it was defined by another cell ` +
-                `(`}
-              <CellLinkError cellId={error.cells[0]} />
+            <div>
+              {`The variable '${error.name}' can't be deleted because it was defined by another cell (`}
+              <CellLinkError cellId={error.cells[0] as CellId} />
               {")"}
             </div>
             <Tip>
@@ -123,16 +121,61 @@ export const MarimoErrorOutput = ({
         return error.raising_cell == null ? (
           <Fragment key={idx}>
             <p>{error.msg}</p>
-            <Tip>See the console area for a traceback.</Tip>
+            <div className="text-sm text-muted-foreground mt-2">
+              See the console area for a traceback.
+            </div>
           </Fragment>
         ) : (
           <div key={idx}>
             {error.msg}
-            <CellLinkError cellId={error.raising_cell} />
+            <CellLinkError cellId={error.raising_cell as CellId} />
             <Tip>
-              Fix the error in <CellLinkError cellId={error.raising_cell} />, or
-              handle the exception in with a try/except block.
+              Fix the error in{" "}
+              <CellLinkError cellId={error.raising_cell as CellId} />, or handle
+              the exception in with a try/except block.
             </Tip>
+          </div>
+        );
+      case "strict-exception":
+        return error.blamed_cell == null ? (
+          <Fragment key={idx}>
+            <p>{error.msg}</p>
+            <Tip>
+              Something is wrong with your declaration of `{error.ref}`. Fix any
+              discrepancies, or turn off strict execution.
+            </Tip>
+          </Fragment>
+        ) : (
+          <div key={idx}>
+            {error.msg}
+            <CellLinkError cellId={error.blamed_cell as CellId} />
+            <Tip>
+              Ensure that&nbsp;
+              <CellLinkError cellId={error.blamed_cell as CellId} />
+              &nbsp;defines the variable `{error.ref}`, or turn off strict
+              execution.
+            </Tip>
+          </div>
+        );
+      case "internal":
+        titleContents = "An internal error occurred";
+        return <p key={idx}>{error.msg}</p>;
+
+      case "ancestor-prevented":
+        titleContents = "Ancestor prevented from running";
+        alertVariant = "default";
+        textColor = "text-secondary-foreground";
+        return error.blamed_cell == null ? (
+          <div key={idx}>
+            {error.msg}
+            (<CellLinkError cellId={error.raising_cell as CellId} />)
+          </div>
+        ) : (
+          <div key={idx}>
+            {error.msg}
+            (<CellLinkError cellId={error.raising_cell as CellId} />
+            &nbsp;blames&nbsp;
+            <CellLinkError cellId={error.blamed_cell as CellId} />)
           </div>
         );
       case "ancestor-stopped":
@@ -142,7 +185,7 @@ export const MarimoErrorOutput = ({
         return (
           <div key={idx}>
             {error.msg}
-            <CellLinkError cellId={error.raising_cell} />
+            <CellLinkError cellId={error.raising_cell as CellId} />
           </div>
         );
 
@@ -153,7 +196,7 @@ export const MarimoErrorOutput = ({
   });
 
   const title = (
-    <AlertTitle className="font-code font-bold mb-4">
+    <AlertTitle className="font-code font-bold tracking-wide">
       {titleContents}
     </AlertTitle>
   );
@@ -162,7 +205,7 @@ export const MarimoErrorOutput = ({
     <Alert
       variant={alertVariant}
       className={cn(
-        `border-none font-code text-sm text-[0.84375rem] px-0 ${textColor} normal [&:has(svg)]:pl-0`,
+        `border-none font-code text-sm text-[0.84375rem] px-0 ${textColor} normal [&:has(svg)]:pl-0 space-y-4`,
         className,
       )}
     >
@@ -170,6 +213,7 @@ export const MarimoErrorOutput = ({
       <div>
         <ul>{msgs}</ul>
       </div>
+      {cellId && <AutoFixButton errors={errors} cellId={cellId} />}
     </Alert>
   );
 };

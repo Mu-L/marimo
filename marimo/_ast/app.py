@@ -1,23 +1,27 @@
 # Copyright 2024 Marimo. All rights reserved.
 from __future__ import annotations
 
-import asyncio
+import functools
+import inspect
+import os
 import random
 import string
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Iterable,
     Iterator,
+    List,
     Literal,
     Mapping,
     Optional,
 )
+from uuid import uuid4
 
 from marimo import _loggers
-from marimo._ast.cell import Cell, CellConfig, CellId_t, execute_cell_async
+from marimo._ast.cell import Cell, CellConfig, CellId_t
 from marimo._ast.compiler import cell_factory
 from marimo._ast.errors import (
     CycleError,
@@ -25,10 +29,30 @@ from marimo._ast.errors import (
     MultipleDefinitionError,
     UnparsableError,
 )
+from marimo._ast.names import DEFAULT_CELL_NAME
+from marimo._ast.pytest import wrap_fn_for_pytest
+from marimo._config.config import WidthType
 from marimo._messaging.mimetypes import KnownMimeType
+from marimo._output.hypertext import Html
 from marimo._output.rich_help import mddoc
 from marimo._runtime import dataflow
-from marimo._runtime.patches import patch_main_module_context
+from marimo._runtime.app.kernel_runner import AppKernelRunner
+from marimo._runtime.app.script_runner import AppScriptRunner
+from marimo._runtime.context.types import (
+    get_context,
+    runtime_context_installed,
+)
+from marimo._runtime.requests import (
+    FunctionCallRequest,
+    SetUIElementValueRequest,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from marimo._messaging.ops import HumanReadableStatus
+    from marimo._plugins.core.web_component import JSONType
+    from marimo._runtime.context.types import ExecutionContext
 
 LOGGER = _loggers.marimo_logger()
 
@@ -41,10 +65,34 @@ class _AppConfig:
     a single marimo program.
     """
 
-    width: Literal["normal", "medium", "full"] = "normal"
+    width: WidthType = "compact"
+    app_title: Optional[str] = None
 
     # The file path of the layout file, relative to the app file.
     layout_file: Optional[str] = None
+
+    # CSS file, relative to the app file
+    css_file: Optional[str] = None
+
+    # HTML head file, relative to the app file
+    html_head_file: Optional[str] = None
+
+    # Whether to automatically download the app as HTML and Markdown
+    auto_download: List[Literal["html", "markdown"]] = field(
+        default_factory=list
+    )
+
+    @staticmethod
+    def from_untrusted_dict(updates: dict[str, Any]) -> _AppConfig:
+        config = _AppConfig()
+        for key in updates:
+            if hasattr(config, key):
+                config.__setattr__(key, updates[key])
+            else:
+                LOGGER.warning(
+                    f"Unrecognized key '{key}' in app config. Ignoring."
+                )
+        return config
 
     def asdict(self) -> dict[str, Any]:
         return asdict(self)
@@ -75,8 +123,11 @@ class CellData:
 
 
 class _Namespace(Mapping[str, object]):
-    def __init__(self, dictionary: dict[str, object]) -> None:
+    def __init__(
+        self, dictionary: dict[str, object], owner: Cell | App
+    ) -> None:
         self._dict = dictionary
+        self._owner = owner
 
     def __getitem__(self, item: str) -> object:
         return self._dict[item]
@@ -93,41 +144,64 @@ class _Namespace(Mapping[str, object]):
         return tree(self._dict)._mime_()
 
 
+@dataclass
+class AppEmbedResult:
+    output: Html
+    defs: Mapping[str, object]
+
+
 @mddoc
 class App:
-    """A marimo app.
+    """A marimo notebook.
 
-    A marimo app is a dataflow graph, with each node computing a Python
+    A marimo notebook is a dataflow graph, with each node computing a Python
     function.
-
-    This class has no public API, but this may change in the future.
     """
 
     def __init__(self, **kwargs: Any) -> None:
         # Take `AppConfig` as kwargs for forward/backward compatibility;
         # unrecognized settings will just be dropped, instead of raising
         # a TypeError.
-        self._config = _AppConfig()
-        for key in asdict(self._config):
-            if key in kwargs:
-                self._config.__setattr__(key, kwargs.pop(key))
+        self._config: _AppConfig = _AppConfig.from_untrusted_dict(kwargs)
 
-        self._cell_manager = CellManager()
+        if runtime_context_installed():
+            # nested applications get a unique cell prefix to disambiguate
+            # their graph from other graphs
+            get_context()
+            cell_prefix = str(uuid4())
+        else:
+            cell_prefix = ""
+
+        self._cell_manager = CellManager(prefix=cell_prefix)
         self._graph = dataflow.DirectedGraph()
+        self._execution_context: ExecutionContext | None = None
         self._runner = dataflow.Runner(self._graph)
 
         self._unparsable = False
         self._initialized = False
+        # injection hook set by contexts like tests such that script traces are
+        # deterministic and not dependent on the test itself.
+        # Set as a private attribute as not to pollute AppConfig or kwargs.
+        self._anonymous_file = False
+
+        # Filename is derived from the callsite of the app
+        self._filename: str | None = None
+        try:
+            self._filename = inspect.getfile(inspect.stack()[1].frame)
+        except Exception:
+            ...
+        self._app_kernel_runner: AppKernelRunner | None = None
 
     def cell(
         self,
         func: Callable[..., Any] | None = None,
         *,
+        column: Optional[int] = None,
         disabled: bool = False,
         hide_code: bool = False,
         **kwargs: Any,
     ) -> Cell | Callable[[Callable[..., Any]], Cell]:
-        """A decorator to add a cell to the app
+        """A decorator to add a cell to the app.
 
         This decorator can be called with or without parentheses. Each of the
         following is valid:
@@ -147,14 +221,16 @@ class App:
         ```
 
         Args:
-        - func: The decorated function
-        - disabled: Whether to disable the cell
-        - kwargs: For forward-compatibility with future arguments
+            func: The decorated function.
+            column: The column number to place this cell in.
+            disabled: Whether to disable the cell.
+            hide_code: Whether to hide the cell's code.
+            **kwargs: For forward-compatibility with future arguments.
         """
         del kwargs
 
         return self._cell_manager.cell_decorator(
-            func, disabled, hide_code, app=InternalApp(self)
+            func, column, disabled, hide_code, app=InternalApp(self)
         )
 
     def _unparsable_cell(
@@ -172,7 +248,7 @@ class App:
 
     def _maybe_initialize(self) -> None:
         if self._unparsable:
-            raise RuntimeError(
+            raise UnparsableError(
                 "This notebook has cells with syntax errors, "
                 "so it cannot be initialized."
             )
@@ -191,17 +267,18 @@ class App:
                 raise CycleError(
                     "This app can't be run because it has cycles."
                 )
-            name = self._graph.get_multiply_defined()
-            if name is not None:
+            multiply_defined_names = self._graph.get_multiply_defined()
+            if multiply_defined_names:
                 raise MultipleDefinitionError(
                     "This app can't be run because it has multiple "
-                    f"definitions of the name {name}"
+                    f"definitions of the name {multiply_defined_names[0]}"
                 )
-            ref = self._graph.get_deleted_nonlocal_ref()
-            if ref is not None:
+            deleted_nonlocal_refs = self._graph.get_deleted_nonlocal_ref()
+            if deleted_nonlocal_refs:
                 raise DeleteNonlocalError(
                     "This app can't be run because at least one cell "
-                    f"deletes one of its refs (the ref's name is {ref})"
+                    "deletes one of its refs (the ref's name is "
+                    f"{deleted_nonlocal_refs[0]})"
                 )
             self._execution_order = dataflow.topological_sort(
                 self._graph, list(self._cell_manager.valid_cell_ids())
@@ -209,44 +286,34 @@ class App:
         finally:
             self._initialized = True
 
-    async def _run_async(self) -> tuple[Sequence[Any], dict[str, Any]]:
-        # TODO: We'll maybe expose this in the future
-        if self._unparsable:
-            raise UnparsableError(
-                "This app can't be run because it has unparsable cells."
-            )
+    def _get_kernel_runner(self) -> AppKernelRunner:
+        if self._app_kernel_runner is None:
+            self._app_kernel_runner = AppKernelRunner(InternalApp(self))
+        return self._app_kernel_runner
 
+    def _flatten_outputs(self, outputs: dict[CellId_t, Any]) -> Sequence[Any]:
+        return tuple(
+            outputs[cid]
+            for cid in self._cell_manager.valid_cell_ids()
+            if not self._graph.is_disabled(cid) and cid in outputs
+        )
+
+    def _globals_to_defs(self, glbls: dict[str, Any]) -> _Namespace:
+        return _Namespace(
+            dictionary={
+                name: glbls[name] for name in self._defs if name in glbls
+            },
+            owner=self,
+        )
+
+    def run(
+        self,
+    ) -> tuple[Sequence[Any], Mapping[str, Any]]:
         self._maybe_initialize()
-
-        # No need to provide `file`, `input_override` here, since this
-        # function is only called when running as a script
-        with patch_main_module_context() as module:
-            glbls = module.__dict__
-            # Execute cells and collect outputs
-            outputs: dict[CellId_t, Any] = {}
-            for cid in self._execution_order:
-                cell = self._cell_manager.cell_data_at(cid).cell
-                if cell is not None:
-                    outputs[cid] = await execute_cell_async(cell._cell, glbls)
-
-            # Return
-            # - the outputs, sorted in the order that cells were added to the
-            #   graph
-            # - dict of defs -> values
-            return (
-                tuple(
-                    outputs[cid] for cid in self._cell_manager.valid_cell_ids()
-                ),
-                # omit defs that were never defined at runtime, eg due to
-                # conditional definitions like
-                #
-                # if cond:
-                #   x = 0
-                {name: glbls[name] for name in self._defs if name in glbls},
-            )
-
-    def run(self) -> tuple[Sequence[Any], dict[str, Any]]:
-        return asyncio.run(self._run_async())
+        outputs, glbls = AppScriptRunner(
+            InternalApp(self), filename=self._filename
+        ).run()
+        return (self._flatten_outputs(outputs), self._globals_to_defs(glbls))
 
     async def _run_cell_async(
         self, cell: Cell, kwargs: dict[str, Any]
@@ -255,14 +322,109 @@ class App:
         output, defs = await self._runner.run_cell_async(
             cell._cell.cell_id, kwargs
         )
-        return output, _Namespace(defs)
+        return output, _Namespace(defs, owner=self)
 
     def _run_cell_sync(
         self, cell: Cell, kwargs: dict[str, Any]
     ) -> tuple[Any, _Namespace]:
         self._maybe_initialize()
         output, defs = self._runner.run_cell_sync(cell._cell.cell_id, kwargs)
-        return output, _Namespace(defs)
+        return output, _Namespace(defs, owner=self)
+
+    async def _set_ui_element_value(
+        self, request: SetUIElementValueRequest
+    ) -> bool:
+        app_kernel_runner = self._get_kernel_runner()
+        return await app_kernel_runner.set_ui_element_value(request)
+
+    async def _function_call(
+        self, request: FunctionCallRequest
+    ) -> tuple[HumanReadableStatus, JSONType, bool]:
+        app_kernel_runner = self._get_kernel_runner()
+        return await app_kernel_runner.function_call(request)
+
+    @mddoc
+    async def embed(self) -> AppEmbedResult:
+        """Embed a notebook into another notebook.
+
+        The `embed` method lets you embed the output of a notebook
+        into another notebook and access the values of its variables.
+
+        Returns:
+            An object `result` with two attributes: `result.output` (visual
+            output of the notebook) and `result.defs` (a dictionary mapping
+            variable names defined by the notebook to their values).
+
+        Example:
+            ```python
+            from my_notebook import app
+            ```
+
+            ```python
+            # execute the notebook; app.embed() can't be called in the cell
+            # that imported it!
+            result = await app.embed()
+            ```
+
+            ```python
+            # view the notebook's visual output
+            result.output
+            ```
+
+            ```python
+            # access the notebook's defined variables
+            result.defs
+            ```
+
+            Running `await app.embed()` executes the notebook and results an object
+            encapsulating the notebook visual output and its definitions.
+
+            Embedded notebook outputs are interactive: when you interact with
+            UI elements in an embedded notebook's output, any cell referring
+            to the `app` object other than the one that imported it is marked for
+            execution, and its internal state is automatically updated. This lets
+            you use notebooks as building blocks or components to create
+            higher-level notebooks.
+
+            Multiple levels of nesting are supported: it's possible to embed a
+            notebook that in turn embeds another notebook, and marimo will do the
+            right thing.
+        """
+        from marimo._plugins.stateless.flex import vstack
+        from marimo._runtime.context.utils import running_in_notebook
+
+        self._maybe_initialize()
+
+        if running_in_notebook():
+            # TODO(akshayka): raise a RuntimeError if called in the cell
+            # that defined the name bound to this App, if any
+            app_kernel_runner = self._get_kernel_runner()
+
+            if not app_kernel_runner.outputs:
+                outputs, glbls = await app_kernel_runner.run(
+                    set(self._execution_order)
+                )
+            else:
+                outputs, glbls = (
+                    app_kernel_runner.outputs,
+                    app_kernel_runner.globals,
+                )
+            return AppEmbedResult(
+                output=vstack(
+                    [
+                        o
+                        for o in self._flatten_outputs(outputs)
+                        if o is not None
+                    ]
+                ),
+                defs=self._globals_to_defs(glbls),
+            )
+        else:
+            flat_outputs, defs = self.run()
+            return AppEmbedResult(
+                output=vstack([o for o in flat_outputs if o is not None]),
+                defs=defs,
+            )
 
 
 class CellManager:
@@ -273,28 +435,50 @@ class CellManager:
     provides methods to access them.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, prefix: str = "") -> None:
         self._cell_data: dict[CellId_t, CellData] = {}
+        self.prefix = prefix
         self.unparsable = False
         self.random_seed = random.Random(42)
 
     def create_cell_id(self) -> CellId_t:
         # 4 random letters
-        return "".join(self.random_seed.choices(string.ascii_letters, k=4))
+        return self.prefix + "".join(
+            self.random_seed.choices(string.ascii_letters, k=4)
+        )
 
     def cell_decorator(
         self,
         func: Callable[..., Any] | None,
+        column: Optional[int],
         disabled: bool,
         hide_code: bool,
         app: InternalApp | None = None,
     ) -> Cell | Callable[..., Cell]:
-        cell_config = CellConfig(disabled=disabled, hide_code=hide_code)
+        cell_config = CellConfig(
+            column=column, disabled=disabled, hide_code=hide_code
+        )
 
         def _register(func: Callable[..., Any]) -> Cell:
-            cell = cell_factory(func, cell_id=self.create_cell_id())
+            # Use PYTEST_VERSION here, opposed to PYTEST_CURRENT_TEST, in
+            # order to allow execution during test collection.
+            is_top_level_pytest = (
+                "PYTEST_VERSION" in os.environ
+                and "PYTEST_CURRENT_TEST" not in os.environ
+            )
+            cell = cell_factory(
+                func,
+                cell_id=self.create_cell_id(),
+                anonymous_file=app._app._anonymous_file if app else False,
+                test_rewrite=is_top_level_pytest,
+            )
             cell._cell.configure(cell_config)
             self._register_cell(cell, app=app)
+            # Manually set the signature for pytest.
+            if is_top_level_pytest:
+                func = wrap_fn_for_pytest(func, cell)
+            # NB. in place metadata update.
+            functools.wraps(func)(cell)
             return cell
 
         if func is None:
@@ -327,7 +511,7 @@ class CellManager:
         cell_id: Optional[CellId_t],
         code: str,
         config: Optional[CellConfig],
-        name: str = "__",
+        name: str = DEFAULT_CELL_NAME,
         cell: Optional[Cell] = None,
     ) -> None:
         if cell_id is None:
@@ -360,9 +544,21 @@ class CellManager:
             cell_id=self.create_cell_id(),
             code=code,
             config=cell_config,
-            name=name or "__",
+            name=name or DEFAULT_CELL_NAME,
             cell=None,
         )
+
+    def ensure_one_cell(self) -> None:
+        if not self._cell_data:
+            cell_id = self.create_cell_id()
+            self.register_cell(
+                cell_id=cell_id,
+                code="",
+                config=CellConfig(),
+            )
+
+    def cell_name(self, cell_id: CellId_t) -> str:
+        return self._cell_data[cell_id].name
 
     def names(self) -> Iterable[str]:
         for cell_data in self._cell_data.values():
@@ -393,6 +589,9 @@ class CellManager:
         """Cell IDs in the order they were registered."""
         return self._cell_data.keys()
 
+    def has_cell(self, cell_id: CellId_t) -> bool:
+        return cell_id in self._cell_data
+
     def cells(
         self,
     ) -> Iterable[Optional[Cell]]:
@@ -407,6 +606,15 @@ class CellManager:
 
     def cell_data_at(self, cell_id: CellId_t) -> CellData:
         return self._cell_data[cell_id]
+
+    def get_cell_id_by_code(self, code: str) -> Optional[CellId_t]:
+        """
+        Finds the first cell with the given code and returns its cell ID.
+        """
+        for cell_id, cell_data in self._cell_data.items():
+            if cell_data.code == code:
+                return cell_id
+        return None
 
 
 class InternalApp:
@@ -429,6 +637,25 @@ class InternalApp:
         return self._app._cell_manager
 
     @property
+    def graph(self) -> dataflow.DirectedGraph:
+        self._app._maybe_initialize()
+        return self._app._graph
+
+    @property
+    def execution_order(self) -> list[CellId_t]:
+        self._app._maybe_initialize()
+        return self._app._execution_order
+
+    @property
+    def execution_context(self) -> ExecutionContext | None:
+        return self._app._execution_context
+
+    def set_execution_context(
+        self, execution_context: ExecutionContext | None
+    ) -> None:
+        self._app._execution_context = execution_context
+
+    @property
     def runner(self) -> dataflow.Runner:
         self._app._maybe_initialize()
         return self._app._runner
@@ -448,11 +675,17 @@ class InternalApp:
         for cell_id, code, name, config in zip(
             cell_ids, codes, names, configs
         ):
+            cell = None
+            # If the cell exists, the cell data should be set.
+            cell_data = self._app._cell_manager._cell_data.get(cell_id)
+            if cell_data is not None:
+                cell = cell_data.cell
             new_cell_manager.register_cell(
                 cell_id=cell_id,
                 code=code,
                 name=name,
                 config=config,
+                cell=cell,
             )
         self._app._cell_manager = new_cell_manager
         return self
@@ -466,3 +699,13 @@ class InternalApp:
         self, cell: Cell, kwargs: dict[str, Any]
     ) -> tuple[Any, _Namespace]:
         return self._app._run_cell_sync(cell, kwargs)
+
+    async def set_ui_element_value(
+        self, request: SetUIElementValueRequest
+    ) -> bool:
+        return await self._app._set_ui_element_value(request)
+
+    async def function_call(
+        self, request: FunctionCallRequest
+    ) -> tuple[HumanReadableStatus, JSONType, bool]:
+        return await self._app._function_call(request)

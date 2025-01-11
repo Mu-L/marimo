@@ -1,17 +1,25 @@
 # Copyright 2024 Marimo. All rights reserved.
+
 from __future__ import annotations
 
+import pathlib
+import subprocess
+import textwrap
 from typing import Any
 
 import pytest
-
-from marimo._ast.app import App
+from marimo._ast.app import App, _AppConfig
 from marimo._ast.errors import (
     CycleError,
     DeleteNonlocalError,
     MultipleDefinitionError,
     UnparsableError,
 )
+from marimo._dependencies.dependencies import DependencyManager
+from marimo._plugins.stateless.flex import vstack
+from marimo._runtime.requests import SetUIElementValueRequest
+from marimo._runtime.runtime import Kernel
+from tests.conftest import ExecReqProvider
 
 
 # don't complain for useless expressions (cell outputs)
@@ -82,12 +90,12 @@ class TestApp:
         app = App()
 
         @app.cell
-        def one():
-            x = y  # noqa
+        def one() -> None:
+            x = y  # noqa: F841, F821
 
         @app.cell
-        def two():
-            y = x  # noqa
+        def two() -> None:
+            y = x  # noqa: F841, F821
 
         with pytest.raises(CycleError):
             app.run()
@@ -114,12 +122,12 @@ class TestApp:
         app = App()
 
         @app.cell
-        def one():
-            x = 0  # noqa
+        def one() -> None:
+            x = 0  # noqa: F841
 
         @app.cell
-        def two():
-            x = 0  # noqa
+        def two() -> None:
+            x = 0  # noqa: F841
 
         with pytest.raises(MultipleDefinitionError):
             app.run()
@@ -129,12 +137,12 @@ class TestApp:
         app = App()
 
         @app.cell
-        def one():
-            x = 0  # noqa
+        def one() -> None:
+            x = 0  # noqa: F841
 
         @app.cell
-        def two():
-            del x  # noqa
+        def two() -> None:
+            del x  # noqa: F841, F821
 
         with pytest.raises(DeleteNonlocalError):
             app.run()
@@ -265,6 +273,25 @@ class TestApp:
         app.run()
 
     @staticmethod
+    def test_dunder_rewritten_as_local() -> None:
+        app = App()
+
+        @app.cell
+        def _() -> None:
+            __ = 1  # noqa: F841
+            return
+
+        @app.cell
+        def _() -> None:
+            __  # type: ignore
+            return
+
+        with pytest.raises(NameError) as e:
+            app.run()
+
+        assert "'__' is not defined" in str(e.value)
+
+    @staticmethod
     def test_app_width_config() -> None:
         app = App(width="full")
         assert app._config.width == "full"
@@ -272,18 +299,25 @@ class TestApp:
     @staticmethod
     def test_app_width_default() -> None:
         app = App()
-        assert app._config.width == "normal"
+        assert app._config.width == "compact"
 
     @staticmethod
     def test_app_config_extra_args_ignored() -> None:
         app = App(width="full", fake_config="foo")
-        assert app._config.asdict() == {"width": "full", "layout_file": None}
+        assert app._config.asdict() == {
+            "app_title": None,
+            "css_file": None,
+            "html_head_file": None,
+            "width": "full",
+            "layout_file": None,
+            "auto_download": [],
+        }
 
     @staticmethod
     def test_cell_config() -> None:
         app = App()
 
-        @app.cell(disabled=True)
+        @app.cell(column=0, disabled=True)
         def _() -> tuple[int]:
             __x__ = 0
             return (__x__,)
@@ -296,6 +330,7 @@ class TestApp:
         cell_manager = app._cell_manager
         configs = tuple(cell_manager.configs())
         assert configs[0].disabled
+        assert configs[0].column is not None
         assert configs[1].hide_code
 
     @staticmethod
@@ -342,8 +377,7 @@ class TestApp:
 
         @app.cell
         def __() -> tuple[Any]:
-            def foo():
-                ...
+            def foo() -> None: ...
 
             return (foo,)
 
@@ -380,3 +414,300 @@ class TestApp:
 
         assert defs["x"] == 0
         assert defs["y"] == 1
+
+    @pytest.mark.skipif(
+        condition=not DependencyManager.matplotlib.has(),
+        reason="requires matplotlib",
+    )
+    def test_marimo_mpl_backend_not_used(self):
+        app = App()
+
+        @app.cell
+        def __() -> tuple[str]:
+            import matplotlib
+
+            backend = matplotlib.get_backend()
+            return (backend,)
+
+        _, defs = app.run()
+
+        assert defs["backend"] != "module://marimo._output.mpl"
+
+    @pytest.mark.skipif(
+        condition=not DependencyManager.matplotlib.has(),
+        reason="requires matplotlib",
+    )
+    def test_app_run_matplotlib_figures_closed(self) -> None:
+        from matplotlib.axes import Axes
+
+        app = App()
+
+        @app.cell
+        def __() -> None:
+            import matplotlib.pyplot as plt
+
+            plt.plot([1, 2])
+            plt.gca()
+
+        @app.cell
+        def __(plt: Any) -> None:
+            plt.plot([1, 1])
+            plt.gca()
+
+        outputs, _ = app.run()
+        assert isinstance(outputs[0], Axes)
+        assert isinstance(outputs[1], Axes)
+        assert outputs[0] != outputs[1]
+
+    @staticmethod
+    def test_app_config_auto_download():
+        # Test default value
+        config = _AppConfig()
+        assert config.auto_download == []
+
+        # Test setting auto_download
+        config = _AppConfig(auto_download=["html", "markdown"])
+        assert config.auto_download == ["html", "markdown"]
+
+        # Test updating auto_download
+        config.update({"auto_download": ["html"]})
+        assert config.auto_download == ["html"]
+
+        # Test setting empty list
+        config.update({"auto_download": []})
+        assert config.auto_download == []
+
+        # Test from_untrusted_dict
+        config = _AppConfig.from_untrusted_dict(
+            {"auto_download": ["markdown"]}
+        )
+        assert config.auto_download == ["markdown"]
+
+        # Test asdict
+        config_dict = config.asdict()
+        assert config_dict["auto_download"] == ["markdown"]
+
+        # Test invalid values are allowed for forward compatibility
+        config = _AppConfig(auto_download=["invalid"])
+        assert config.auto_download == ["invalid"]
+
+    def test_has_file_and_dirname(self) -> None:
+        app = App()
+
+        @app.cell
+        def f():
+            file = __file__
+
+        @app.cell
+        def g():
+            import marimo as mo
+
+            dirpath = mo.notebook_dir()
+
+        _, glbls = app.run()
+        assert glbls["file"] == __file__
+        assert glbls["dirpath"] == pathlib.Path(glbls["file"]).parent
+
+    def test_notebook_location(self) -> None:
+        app = App()
+
+        @app.cell
+        def __():
+            import marimo as mo
+
+            dirpath = mo.notebook_dir()
+            location = mo.notebook_location()
+
+        _, glbls = app.run()
+        dirpath = glbls["dirpath"]
+        location = glbls["location"]
+        assert dirpath is not None
+        assert location is not None
+        assert dirpath == location
+
+
+def test_app_config() -> None:
+    config = _AppConfig.from_untrusted_dict({"width": "full"})
+    assert config.width == "full"
+    assert config.layout_file is None
+    assert config.asdict() == {
+        "app_title": None,
+        "css_file": None,
+        "html_head_file": None,
+        "width": "full",
+        "layout_file": None,
+        "auto_download": [],
+    }
+
+
+def test_app_config_extra_args_ignored() -> None:
+    config = _AppConfig.from_untrusted_dict(
+        {"width": "full", "fake_config": "foo"}
+    )
+    assert config.width == "full"
+    assert config.layout_file is None
+    assert config.asdict() == {
+        "app_title": None,
+        "css_file": None,
+        "html_head_file": None,
+        "width": "full",
+        "layout_file": None,
+        "auto_download": [],
+    }
+
+
+def test_cli_args(tmp_path: pathlib.Path) -> None:
+    py_file = tmp_path / "cli_args_script.py"
+    content = """
+    import marimo
+    app = marimo.App()
+
+    @app.cell
+    def __():
+        import marimo as mo
+        print(mo.cli_args())
+        return mo,
+
+    if __name__ == "__main__":
+        app.run()
+    """
+    py_file.write_text(textwrap.dedent(content))
+    p = subprocess.run(
+        ["python", str(py_file), "--foo", "value1", "--bar", "value2"],
+        stdout=subprocess.PIPE,
+    )
+    assert p.returncode == 0
+    output = p.stdout.decode()
+    assert "foo" in output
+    assert "value1" in output
+    assert "bar" in output
+    assert "value2" in output
+
+
+class TestAppComposition:
+    async def test_app_embed(self) -> None:
+        app = App()
+
+        @app.cell
+        def __() -> None:
+            x = 1
+            "hello"
+
+        @app.cell
+        def __() -> None:
+            "world"
+
+        result = await app.embed()
+        assert result.output.text == vstack(["hello", "world"]).text
+        assert set(result.defs.keys()) == set(["x"])
+        assert result.defs["x"] == 1
+
+    async def test_app_embed_none_stripped(self) -> None:
+        app = App()
+
+        @app.cell
+        def __() -> None:
+            "hello"
+
+        @app.cell
+        def __() -> None:
+            None
+
+        @app.cell
+        def __() -> None:
+            "world"
+
+        result = await app.embed()
+        # None shouldn't show up in output
+        assert result.output.text == vstack(["hello", "world"]).text
+        assert not result.defs
+
+    async def test_app_comp_basic(
+        self, k: Kernel, exec_req: ExecReqProvider
+    ) -> None:
+        await k.run(
+            [
+                exec_req.get(
+                    """
+                    from app_data.ui_element_dropdown import app
+                    """
+                ),
+                exec_req.get(
+                    """
+                    import random
+
+                    token = random.randint(0, 10000)
+                    result = await app.embed()
+                    """
+                ),
+            ]
+        )
+        assert not k.errors
+
+        # store the token value now, so we can make sure it changes later,
+        # ie can make sure cell re-ran
+        token = k.globals["token"]
+        result = k.globals["result"]
+        # dropdown has name d in app
+        dropdown_element = result.defs["d"]
+        assert dropdown_element.value == "first"
+
+        html = result.output.text
+        assert "value is first" in html
+        assert "value is second" not in html
+
+        await k.set_ui_element_value(
+            SetUIElementValueRequest.from_ids_and_values(
+                [(dropdown_element._id, ["second"])]
+            )
+        )
+        assert token != k.globals["token"]
+
+        # make sure ui element value updated
+        assert dropdown_element.value == "second"
+        # make sure cell referencing app re-ran
+        result = k.globals["result"]
+        html = result.output.text
+        assert "value is first" not in html
+        assert "value is second" in html
+
+    async def test_app_comp_multiple_ui_elements(
+        self, k: Kernel, exec_req: ExecReqProvider
+    ) -> None:
+        await k.run(
+            [
+                exec_req.get(
+                    """
+                    from app_data.calculator import app
+                    """
+                ),
+                exec_req.get(
+                    """
+                    result = await app.embed()
+                    """
+                ),
+            ]
+        )
+        assert not k.errors
+
+        result = k.globals["result"]
+        # two number inputs: x and y
+        x = result.defs["x"]
+        y = result.defs["y"]
+        assert x.value == 1
+        assert y.value == 1
+
+        # testing that only descendants of the updated UI elements run,
+        # and that the other UI element is not reset
+        await k.set_ui_element_value(
+            SetUIElementValueRequest.from_ids_and_values([(x._id, 2)])
+        )
+        assert x.value == 2
+        assert y.value == 1
+
+        await k.set_ui_element_value(
+            SetUIElementValueRequest.from_ids_and_values([(y._id, 3)])
+        )
+
+        assert x.value == 2
+        assert y.value == 3

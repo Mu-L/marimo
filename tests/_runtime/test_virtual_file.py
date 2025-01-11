@@ -2,14 +2,15 @@
 from __future__ import annotations
 
 from marimo._runtime.context import get_context
-from marimo._runtime.requests import DeleteRequest
+from marimo._runtime.requests import DeleteCellRequest
 from marimo._runtime.runtime import Kernel
 from tests.conftest import ExecReqProvider
 
 
 async def test_virtual_file_creation(
-    k: Kernel, exec_req: ExecReqProvider
+    execution_kernel: Kernel, exec_req: ExecReqProvider
 ) -> None:
+    k = execution_kernel
     await k.run(
         [
             exec_req.get(
@@ -28,8 +29,9 @@ async def test_virtual_file_creation(
 
 
 async def test_virtual_file_deletion(
-    k: Kernel, exec_req: ExecReqProvider
+    execution_kernel: Kernel, exec_req: ExecReqProvider
 ) -> None:
+    k = execution_kernel
     await k.run(
         [
             er := exec_req.get(
@@ -46,13 +48,14 @@ async def test_virtual_file_deletion(
     for fname, _ in get_context().virtual_file_registry.registry.items():
         assert fname.endswith(".pdf")
 
-    await k.delete(DeleteRequest(cell_id=er.cell_id))
+    await k.delete_cell(DeleteCellRequest(cell_id=er.cell_id))
     assert not get_context().virtual_file_registry.registry
 
 
 async def test_cached_virtual_file_not_deleted(
-    k: Kernel, exec_req: ExecReqProvider
+    execution_kernel: Kernel, exec_req: ExecReqProvider
 ) -> None:
+    k = execution_kernel
     await k.run(
         [
             exec_req.get(
@@ -86,16 +89,17 @@ async def test_cached_virtual_file_not_deleted(
     assert len(get_context().virtual_file_registry.registry) == 2
 
     # Remove the cells that create the vfiles
-    await k.delete(DeleteRequest(cell_id=create_vfile_1.cell_id))
-    await k.delete(DeleteRequest(cell_id=create_vfile_2.cell_id))
+    await k.delete_cell(DeleteCellRequest(cell_id=create_vfile_1.cell_id))
+    await k.delete_cell(DeleteCellRequest(cell_id=create_vfile_2.cell_id))
 
     # Reset the vfile cache
     await k.run([vfile_cache])
 
 
 async def test_cell_deletion_clears_vfiles(
-    k: Kernel, exec_req: ExecReqProvider
+    execution_kernel: Kernel, exec_req: ExecReqProvider
 ) -> None:
+    k = execution_kernel
     await k.run(
         [
             exec_req.get(
@@ -120,13 +124,14 @@ async def test_cell_deletion_clears_vfiles(
     assert len(get_context().virtual_file_registry.registry) == 1
 
     # Delete the vfile cache: virtual file registry should be empty
-    await k.delete(DeleteRequest(cell_id=vfile_cache.cell_id))
+    await k.delete_cell(DeleteCellRequest(cell_id=vfile_cache.cell_id))
     assert len(get_context().virtual_file_registry.registry) == 0
 
 
 async def test_vfile_refcount_incremented(
-    k: Kernel, exec_req: ExecReqProvider
+    execution_kernel: Kernel, exec_req: ExecReqProvider
 ) -> None:
+    k = execution_kernel
     await k.run(
         [
             exec_req.get(
@@ -159,8 +164,9 @@ async def test_vfile_refcount_incremented(
 
 
 async def test_vfile_refcount_decremented(
-    k: Kernel, exec_req: ExecReqProvider
+    execution_kernel: Kernel, exec_req: ExecReqProvider
 ) -> None:
+    k = execution_kernel
     await k.run(
         [
             exec_req.get(
@@ -201,8 +207,9 @@ async def test_vfile_refcount_decremented(
 
 
 async def test_cached_vfile_disposal(
-    k: Kernel, exec_req: ExecReqProvider
+    execution_kernel: Kernel, exec_req: ExecReqProvider
 ) -> None:
+    k = execution_kernel
     await k.run(
         [
             exec_req.get(
@@ -210,18 +217,26 @@ async def test_cached_vfile_disposal(
                 import io
                 import marimo as mo
                 import functools
+                import weakref
                 """
             ),
             exec_req.get(
                 """
-                vfiles = []
+                class namespace:
+                  ...
+                vfiles = namespace()
+                vfiles.files = []
+                ref = weakref.ref(vfiles)
+
                 def create_vfile(arg):
                     del arg
                     bytestream = io.BytesIO(b"hello world")
                     return mo.pdf(bytestream)
                 """
             ),
-            append_vfile := exec_req.get("vfiles.append(create_vfile(1))"),
+            append_vfile := exec_req.get(
+                "ref().files.append(create_vfile(1))"
+            ),
         ]
     )
     ctx = get_context()
@@ -232,7 +247,7 @@ async def test_cached_vfile_disposal(
     assert ctx.virtual_file_registry.refcount(vfile) == 1
 
     # clear the list, refcount should be decremented
-    await k.run([exec_req.get("vfiles[:] = []")])
+    await k.run([exec_req.get("ref().files[:] = []")])
     # NB: this test may be flaky! refcount decremented when `__del__` is called
     # but we can't rely on when it will be called.
     await k.run([exec_req.get("import gc; gc.collect()")])
@@ -242,3 +257,27 @@ async def test_cached_vfile_disposal(
     await k.run([append_vfile])
     assert len(ctx.virtual_file_registry.registry) == 1
     assert vfile not in ctx.virtual_file_registry.filenames()
+
+
+async def test_virtual_files_not_supported(
+    execution_kernel: Kernel, exec_req: ExecReqProvider
+) -> None:
+    k = execution_kernel
+    get_context().virtual_files_supported = False
+
+    await k.run(
+        [
+            exec_req.get(
+                """
+                import io
+                import marimo as mo
+                bytestream = io.BytesIO(b"hello world")
+                pdf_plugin = mo.pdf(bytestream)
+                """
+            ),
+        ],
+    )
+
+    ctx = get_context()
+    assert len(ctx.virtual_file_registry.registry) == 0
+    ctx.virtual_files_supported = True

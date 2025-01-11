@@ -1,6 +1,7 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import {
   AGGREGATION_FNS,
+  type ColumnId,
   NUMPY_DTYPES,
 } from "@/plugins/impl/data-frames/types";
 import {
@@ -10,13 +11,15 @@ import {
 import { z } from "zod";
 import {
   ALL_OPERATORS,
-  OperatorType,
+  type OperatorType,
   isConditionValueValid,
 } from "./utils/operators";
 
 const column_id = z
   .string()
   .min(1, "Required")
+  .or(z.number())
+  .transform((v) => v as ColumnId)
   .describe(FieldOptions.of({ label: "Column", special: "column_id" }));
 
 const column_id_array = z
@@ -48,6 +51,7 @@ const RenameColumnTransformSchema = z.object({
   new_column_id: z
     .string()
     .min(1, "Required")
+    .transform((v) => v as ColumnId)
     .describe(FieldOptions.of({ label: "New column name" })),
 });
 
@@ -75,6 +79,7 @@ export const ConditionSchema = z
     value: z.any().describe(FieldOptions.of({ label: "Value" })),
   })
   .describe(FieldOptions.of({ direction: "row", special: "column_filter" }));
+export type ConditionType = z.infer<typeof ConditionSchema>;
 
 const FilterRowsTransformSchema = z.object({
   type: z.literal("filter_rows"),
@@ -158,6 +163,16 @@ const ShuffleRowsTransformSchema = z.object({
     ),
 });
 
+const ExplodeColumnsTransformSchema = z.object({
+  type: z.literal("explode_columns"),
+  column_ids: column_id_array,
+});
+
+const ExpandDictTransformSchema = z.object({
+  type: z.literal("expand_dict"),
+  column_id: column_id,
+});
+
 export const TransformTypeSchema = z.union([
   FilterRowsTransformSchema,
   SelectColumnsTransformSchema,
@@ -168,6 +183,8 @@ export const TransformTypeSchema = z.union([
   AggregateTransformSchema,
   SampleRowsTransformSchema,
   ShuffleRowsTransformSchema,
+  ExplodeColumnsTransformSchema,
+  ExpandDictTransformSchema,
 ]);
 
 export type TransformType = z.infer<typeof TransformTypeSchema>;

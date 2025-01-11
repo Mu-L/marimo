@@ -5,8 +5,10 @@ import asyncio
 import signal
 from typing import Callable
 
+from marimo._config.settings import GLOBAL_SETTINGS
 from marimo._server.utils import (
     TAB,
+    print_,
 )
 
 
@@ -29,6 +31,16 @@ class InterruptHandler:
                 lambda signum, frame: self._interrupt_handler(),  # noqa: ARG005,E501
             )
 
+    def restore_interrupt_handler(self) -> None:
+        # Restore the original signal handler so re-entering Ctrl+C raises a
+        # keyboard interrupt instead of calling this function again (input is
+        # not re-entrant, so it's not safe to call this function again)
+        try:
+            self.loop.remove_signal_handler(signal.SIGINT)
+        except NotImplementedError:
+            # Windows
+            signal.signal(signal.SIGINT, self.original_handler)
+
     def _interrupt_handler(self) -> None:
         # Restore the original signal handler so re-entering Ctrl+C raises a
         # keyboard interrupt instead of calling this function again (input is
@@ -43,6 +55,10 @@ class InterruptHandler:
             self.shutdown()
 
         try:
+            if GLOBAL_SETTINGS.YES:
+                self.shutdown()
+                return
+
             response = input(
                 f"\r{TAB}\033[1;32mAre you sure you want to quit?\033[0m "
                 "\033[1m(y/n)\033[0m: "
@@ -51,7 +67,7 @@ class InterruptHandler:
                 self.shutdown()
                 return
         except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
-            print()
+            print_()
             self.shutdown()
             return
 

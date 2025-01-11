@@ -2,26 +2,42 @@
 import { memo, useState } from "react";
 import CodeMirror, {
   EditorView,
-  ReactCodeMirrorProps,
+  type ReactCodeMirrorProps,
 } from "@uiw/react-codemirror";
-import { CopyIcon, EyeIcon } from "lucide-react";
+import { CopyIcon, EyeIcon, EyeOffIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Events } from "@/utils/events";
 import { toast } from "@/components/ui/use-toast";
 import { useTheme } from "@/theme/useTheme";
 import { cn } from "@/utils/cn";
 import { customPythonLanguageSupport } from "@/core/codemirror/language/python";
+import { sql } from "@codemirror/lang-sql";
+import { copyToClipboard } from "@/utils/copy";
+import { Tooltip } from "@/components/ui/tooltip";
 
-export const ReadonlyPythonCode = memo(
+const pythonExtensions = [
+  customPythonLanguageSupport(),
+  EditorView.lineWrapping,
+];
+const sqlExtensions = [sql(), EditorView.lineWrapping];
+
+export const ReadonlyCode = memo(
   (
     props: {
       className?: string;
       code: string;
       initiallyHideCode?: boolean;
+      language?: "python" | "sql";
     } & ReactCodeMirrorProps,
   ) => {
     const { theme } = useTheme();
-    const { code, className, initiallyHideCode, ...rest } = props;
+    const {
+      code,
+      className,
+      initiallyHideCode,
+      language = "python",
+      ...rest
+    } = props;
     const [hideCode, setHideCode] = useState(initiallyHideCode);
 
     return (
@@ -31,15 +47,26 @@ export const ReadonlyPythonCode = memo(
           className,
         )}
       >
-        {hideCode && <HideCodeButton onClick={() => setHideCode(false)} />}
-        {!hideCode && <FloatingCopyButton text={code} />}
+        {hideCode && (
+          <HideCodeButton
+            tooltip="Show code"
+            onClick={() => setHideCode(false)}
+          />
+        )}
+        {!hideCode && (
+          <div className="absolute top-0 right-0 my-1 mx-2 z-10 hover-action flex gap-2">
+            <CopyButton text={code} />
+
+            <EyeCloseButton onClick={() => setHideCode(true)} />
+          </div>
+        )}
         <CodeMirror
           {...rest}
           className={cn("cm", hideCode && "opacity-20 h-8 overflow-hidden")}
           theme={theme === "dark" ? "dark" : "light"}
           height="100%"
           editable={!hideCode}
-          extensions={[customPythonLanguageSupport(), EditorView.lineWrapping]}
+          extensions={language === "python" ? pythonExtensions : sqlExtensions}
           value={code}
           readOnly={true}
         />
@@ -47,30 +74,48 @@ export const ReadonlyPythonCode = memo(
     );
   },
 );
-ReadonlyPythonCode.displayName = "ReadonlyPythonCode";
+ReadonlyCode.displayName = "ReadonlyCode";
 
-const FloatingCopyButton = (props: { text: string }) => {
-  const copy = Events.stopPropagation(() => {
-    navigator.clipboard.writeText(props.text);
+const CopyButton = (props: { text: string }) => {
+  const copy = Events.stopPropagation(async () => {
+    await copyToClipboard(props.text);
     toast({ title: "Copied to clipboard" });
   });
 
   return (
-    <Button
-      onClick={copy}
-      className="absolute top-0 right-0 m-2 z-10 hover-action"
-      size="xs"
-      variant="secondary"
-    >
-      <CopyIcon size={14} strokeWidth={1.5} />
-    </Button>
+    <Tooltip content="Copy code" usePortal={false}>
+      <Button onClick={copy} size="xs" className="py-0" variant="secondary">
+        <CopyIcon size={14} strokeWidth={1.5} />
+      </Button>
+    </Tooltip>
   );
 };
 
-export const HideCodeButton = (props: { onClick: () => void }) => {
+const EyeCloseButton = (props: { onClick: () => void }) => {
   return (
-    <div className="absolute inset-0 z-10" onClick={props.onClick}>
-      <EyeIcon className="hover-action w-5 h-5 text-muted-foreground cursor-pointer absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 opacity-80 hover:opacity-100" />
+    <Tooltip content="Hide code" usePortal={false}>
+      <Button
+        onClick={props.onClick}
+        size="xs"
+        className="py-0"
+        variant="secondary"
+      >
+        <EyeOffIcon size={14} strokeWidth={1.5} />
+      </Button>
+    </Tooltip>
+  );
+};
+
+export const HideCodeButton = (props: {
+  tooltip?: string;
+  className?: string;
+  onClick: () => void;
+}) => {
+  return (
+    <div className={props.className} onClick={props.onClick}>
+      <Tooltip usePortal={false} content={props.tooltip}>
+        <EyeIcon className="hover-action w-5 h-5 text-muted-foreground cursor-pointer absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 opacity-80 hover:opacity-100 z-20" />
+      </Tooltip>
     </div>
   );
 };

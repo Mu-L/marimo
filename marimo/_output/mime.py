@@ -1,11 +1,13 @@
 # Copyright 2024 Marimo. All rights reserved.
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from marimo._messaging.mimetypes import KnownMimeType
 
 
+@dataclass
 class MIME(Protocol):
     """Protocol for instantiating objects using marimo's media viewer.
 
@@ -24,6 +26,9 @@ class MIME(Protocol):
         The supported mimetypes are:
           application/json
           application/vnd.marimo+error
+          application/vnd.marimo+traceback
+          application/vnd.vega.v5+json
+          application/vnd.vegalite.v5+json
           image/png
           image/svg+xml
           image/tiff

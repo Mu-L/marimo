@@ -1,10 +1,12 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { describe, expect, test, vi } from "vitest";
-import { CodeMirrorSetupOpts, setupCodeMirror } from "../cm";
-import { EditorState, Extension } from "@codemirror/state";
+import { type CodeMirrorSetupOpts, setupCodeMirror } from "../cm";
+import { EditorState, type Extension } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
-import { CellId } from "@/core/cells/ids";
+import type { CellId } from "@/core/cells/ids";
 import { Objects } from "@/utils/objects";
+import { OverridingHotkeyProvider } from "@/core/hotkeys/hotkeys";
+import { PythonLanguageAdapter } from "../language/python";
 
 vi.mock("@/core/config/config", () => ({
   parseAppConfig: () => ({}),
@@ -17,38 +19,48 @@ function namedFunction(name: string) {
   return fn;
 }
 
-function setup(config: Partial<CodeMirrorSetupOpts> = {}): Extension[] {
-  return setupCodeMirror({
+function getOpts() {
+  return {
     cellId: "0" as CellId,
     showPlaceholder: false,
+    enableAI: false,
     cellMovementCallbacks: {
       onRun: namedFunction("onRun"),
       aiCellCompletion: namedFunction("aiCellCompletion"),
       deleteCell: namedFunction("deleteCell"),
       createAbove: namedFunction("createAbove"),
       createBelow: namedFunction("createBelow"),
+      createManyBelow: namedFunction("createManyBelow"),
       moveUp: namedFunction("moveUp"),
       moveDown: namedFunction("moveDown"),
       focusUp: namedFunction("focusUp"),
       focusDown: namedFunction("focusDown"),
       sendToTop: namedFunction("sendToTop"),
       sendToBottom: namedFunction("sendToBottom"),
+      splitCell: namedFunction("splitCell"),
       moveToNextCell: namedFunction("moveToNextCell"),
       toggleHideCode: namedFunction("toggleHideCode"),
     },
     cellCodeCallbacks: {
       updateCellCode: namedFunction("updateCellCode"),
+      afterToggleMarkdown: namedFunction("afterToggleMarkdown"),
     },
     completionConfig: {
       activate_on_typing: false,
       copilot: false,
+      codeium_api_key: null,
     },
     keymapConfig: {
       preset: "default",
+      overrides: {},
     },
+    hotkeys: new OverridingHotkeyProvider({}),
     theme: "light",
-    ...config,
-  });
+  } as const;
+}
+
+function setup(config: Partial<CodeMirrorSetupOpts> = {}): Extension[] {
+  return setupCodeMirror({ ...getOpts(), ...config });
 }
 
 function prettyPrintKeymaps(state: EditorState) {
@@ -90,26 +102,62 @@ describe("snapshot all duplicate keymaps", () => {
     );
     // Total duplicates:
     // if this changes, please make sure to validate they are not conflicting
-    expect(Object.values(duplicates).flat().length).toMatchInlineSnapshot(`20`);
+    expect(Object.values(duplicates).flat().length).toMatchInlineSnapshot("20");
     expect(duplicates).toMatchSnapshot();
   });
 
   test("vim keymaps", () => {
     const extensions = setup({
-      keymapConfig: { preset: "vim" },
+      keymapConfig: { preset: "vim", overrides: {} },
     });
     const duplicates = getDuplicateKeymaps(
       EditorState.create({ extensions: extensions }),
     );
     // Total duplicates:
     // if this changes, please make sure to validate they are not conflicting
-    expect(Object.values(duplicates).flat().length).toMatchInlineSnapshot(`19`);
+    expect(Object.values(duplicates).flat().length).toMatchInlineSnapshot("19");
     expect(duplicates).toMatchSnapshot();
   });
 });
 
 test("placeholder adds another extension", () => {
-  const withPlaceholder = setup({ showPlaceholder: true }).flat();
-  const withoutPlaceholder = setup({ showPlaceholder: false }).flat();
-  expect(withPlaceholder.length - 1).toBe(withoutPlaceholder.length);
+  const opts = getOpts();
+  const withAI = new PythonLanguageAdapter()
+    .getExtension(
+      opts.completionConfig,
+      opts.hotkeys,
+      "marimo-import",
+      opts.cellMovementCallbacks,
+    )
+    .flat();
+  const withoutAI = new PythonLanguageAdapter()
+    .getExtension(
+      opts.completionConfig,
+      opts.hotkeys,
+      "none",
+      opts.cellMovementCallbacks,
+    )
+    .flat();
+  expect(withAI.length - 1).toBe(withoutAI.length);
+});
+
+test("ai adds more extensions", () => {
+  const opts = getOpts();
+  const withAI = new PythonLanguageAdapter()
+    .getExtension(
+      opts.completionConfig,
+      opts.hotkeys,
+      "ai",
+      opts.cellMovementCallbacks,
+    )
+    .flat();
+  const withoutAI = new PythonLanguageAdapter()
+    .getExtension(
+      opts.completionConfig,
+      opts.hotkeys,
+      "none",
+      opts.cellMovementCallbacks,
+    )
+    .flat();
+  expect(withAI.length - 2).toBe(withoutAI.length);
 });

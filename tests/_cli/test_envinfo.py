@@ -1,21 +1,28 @@
 # Copyright 2024 Marimo. All rights reserved.
 from marimo._cli.envinfo import (
-    _get_node_version,
-    _get_pip_list,
     get_system_info,
 )
 
 
 def test_get_node_version() -> None:
-    node_version = _get_node_version()
+    system_info = get_system_info()
+    assert "Binaries" in system_info
+    assert "Node" in system_info["Binaries"]
+    node_version = system_info["Binaries"]["Node"]
+
     assert node_version is None or isinstance(node_version, str)
 
 
-def test_get_pip_list() -> None:
-    pip_list = _get_pip_list()
-    assert isinstance(pip_list, dict)
-    assert "click" in pip_list
-    assert "starlette" in pip_list
+def test_get_package_versions() -> None:
+    system_info = get_system_info()
+    assert "Dependencies" in system_info
+    package_versions = system_info["Dependencies"]
+
+    assert isinstance(package_versions, dict)
+    assert "click" in package_versions
+    assert "starlette" in package_versions
+    assert "pymdown-extensions" in package_versions
+    assert package_versions["pymdown-extensions"] != "missing"
 
 
 def test_get_system_info() -> None:
@@ -26,4 +33,4 @@ def test_get_system_info() -> None:
     assert "OS Version" in system_info
     assert "Python Version" in system_info
     assert "Binaries" in system_info
-    assert "Requirements" in system_info
+    assert "Dependencies" in system_info

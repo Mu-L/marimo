@@ -14,4 +14,11 @@ export const Functions = {
       ? (updater as (value: T) => T)
       : () => updater;
   },
+  identity: <T>(value: T): T => {
+    return value;
+  },
 };
+
+export function throwNotImplemented(): never {
+  throw new Error("Not implemented");
+}

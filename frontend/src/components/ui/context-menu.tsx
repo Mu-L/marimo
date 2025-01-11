@@ -17,12 +17,14 @@ import {
   menuSeparatorVariants,
   menuSubTriggerVariants,
 } from "./menu-items";
-import { VariantProps } from "class-variance-authority";
+import type { VariantProps } from "class-variance-authority";
+import { withFullScreenAsRoot } from "./fullscreen";
+import { StyleNamespace } from "@/theme/namespace";
 
 const ContextMenu = ContextMenuPrimitive.Root;
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger;
 const ContextMenuGroup = ContextMenuPrimitive.Group;
-const ContextMenuPortal = ContextMenuPrimitive.Portal;
+const ContextMenuPortal = withFullScreenAsRoot(ContextMenuPrimitive.Portal);
 const ContextMenuSub = ContextMenuPrimitive.Sub;
 const ContextMenuRadioGroup = ContextMenuPrimitive.RadioGroup;
 
@@ -66,13 +68,15 @@ const ContextMenuContent = React.forwardRef<
   React.ElementRef<typeof ContextMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
 >(({ className, ...props }, ref) => (
-  <ContextMenuPrimitive.Portal>
-    <ContextMenuPrimitive.Content
-      ref={ref}
-      className={cn(menuContentCommon(), contentCommon, className)}
-      {...props}
-    />
-  </ContextMenuPrimitive.Portal>
+  <ContextMenuPortal>
+    <StyleNamespace>
+      <ContextMenuPrimitive.Content
+        ref={ref}
+        className={cn(menuContentCommon(), contentCommon, className)}
+        {...props}
+      />
+    </StyleNamespace>
+  </ContextMenuPortal>
 ));
 ContextMenuContent.displayName = ContextMenuPrimitive.Content.displayName;
 

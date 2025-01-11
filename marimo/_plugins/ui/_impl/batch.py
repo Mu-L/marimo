@@ -1,27 +1,29 @@
 # Copyright 2024 Marimo. All rights reserved.
 from __future__ import annotations
 
-import sys
-
-if sys.version_info < (3, 9):
-    from typing import ItemsView, ValuesView
-else:
-    from collections.abc import ItemsView, ValuesView
-
-from typing import Any, Callable, Dict, Final, Iterator, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Final,
+    Iterator,
+    Optional,
+)
 
 from marimo._output.hypertext import Html
 from marimo._output.rich_help import mddoc
 from marimo._plugins.core.web_component import JSONType
 from marimo._plugins.ui._core.ui_element import UIElement
 
+if TYPE_CHECKING:
+    from collections.abc import ItemsView, ValuesView
+
 
 # - Frontend type is a dict {label => value update}
 # - Python type is a dict mapping label -> value
 class _batch_base(UIElement[Dict[str, JSONType], Dict[str, object]]):
-    """
-    A batch of named UI elements represented by HTML text.
-    """
+    """A batch of named UI elements represented by HTML text."""
 
     _name: Final[str] = "marimo-dict"
 
@@ -72,12 +74,31 @@ class _batch_base(UIElement[Dict[str, JSONType], Dict[str, object]]):
         return item in self.elements
 
     def get(self, key: str, default: Any | None = None) -> Any:
+        """Get a UI element by key with an optional default value.
+
+        Args:
+            key (str): The key to look up in the batch.
+            default (Any | None, optional): Value to return if key is not found. Defaults to None.
+
+        Returns:
+            Any: The UI element if found, otherwise the default value.
+        """
         return self.elements.get(key, default)
 
     def items(self) -> ItemsView[str, UIElement[JSONType, object]]:
+        """Return a view of the batch's items (key-value pairs).
+
+        Returns:
+            ItemsView[str, UIElement]: A view of the batch's (key, element) pairs.
+        """
         return self.elements.items()
 
     def values(self) -> ValuesView[UIElement[JSONType, object]]:
+        """Return a view of the batch's values (UI elements).
+
+        Returns:
+            ValuesView[UIElement]: A view of the batch's UI elements.
+        """
         return self.elements.values()
 
     def _convert_value(self, value: dict[str, JSONType]) -> dict[str, object]:
@@ -92,11 +113,22 @@ class _batch_base(UIElement[Dict[str, JSONType], Dict[str, object]]):
             for key, wrapped_element in self._elements.items()
         }
 
+    def _on_update_completion(self) -> bool:
+        any_updated = False
+        for element in self._elements.values():
+            any_updated |= element._on_update_completion()
+
+        if any_updated:
+            self._value = {
+                key: wrapped_element._value
+                for key, wrapped_element in self._elements.items()
+            }
+        return any_updated
+
 
 @mddoc
 class batch(_batch_base):
-    """
-    Convert an HTML object with templated text into a UI element.
+    """Convert an HTML object with templated text into a UI element.
 
     A `batch` is a UI element that wraps other UI elements, and is
     represented by custom HTML or markdown. You can create
@@ -105,53 +137,50 @@ class batch(_batch_base):
     Get the value of the wrapped UI elements using the `value` attribute
     of the batch.
 
-    **Example.**
+    Examples:
+        In the below example, `user_info` is a UI Element whose output is markdown
+        and whose value is a dict with keys `'name'` and `'birthday'`
+        (and values equal to the values of their corresponding elements).
 
-    In the below example, `user_info` is a UI Element whose output is markdown
-    and whose value is a dict with keys `'name'` and '`birthday`'
-    (and values equal to the values of their corresponding elements).
+        ```python3
+        user_info = mo.md(
+            '''
+            - What's your name?: {name}
+            - When were you born?: {birthday}
+            '''
+        ).batch(name=mo.ui.text(), birthday=mo.ui.date())
+        ```
 
+        To get the value of `name` and `birthday`, use:
 
-    ```python3
-    user_info = mo.md(
-        '''
-        - What's your name?: {name}
-        - When were you born?: {birthday}
-        '''
-    ).batch(name=mo.ui.text(), birthday=mo.ui.date())
-    ```
+        ```
+        user_info.value
+        ```
 
-    To get the value of `name` and `birthday`, use:
+        You can also instantiate this class directly:
 
-    ```
-    user_info.value
-    ```
+        ```python3
+        markdown = mo.md(
+            '''
+            - What's your name?: {name}
+            - When were you born?: {birthday}
+            '''
+        )
+        batch = mo.ui.batch(
+            markdown, {"name": mo.ui.text(), "birthday": mo.ui.date()}
+        )
+        ```
 
-    You can also instantiate this class directly:
+    Attributes:
+        value (dict): A dict of the batched elements' values.
+        elements (dict): A dict of the batched elements (clones of the originals).
+        on_change (Optional[Callable]): Optional callback to run when this element's value changes.
 
-    ```python3
-    markdown = mo.md(
-        '''
-        - What's your name?: {name}
-        - When were you born?: {birthday}
-        '''
-    )
-    batch = mo.ui.batch(
-        markdown, {"name": mo.ui.text(), "birthday": mo.ui.date()}
-    )
-    ```
-
-    **Attributes.**
-
-    - `value`: a `dict` of the batched elements' values
-    - `elements`: a `dict` of the batched elements (clones of the originals)
-    - `on_change`: optional callback to run when this element's value changes
-
-    **Initialization Args.**
-
-    - html: a templated `Html` object
-    - elements: the UI elements to interpolate into the HTML template
-    - `on_change`: optional callback to run when this element's value changes
+    Args:
+        html (Html): A templated Html object.
+        elements (dict[str, UIElement]): The UI elements to interpolate into the HTML template.
+        on_change (Optional[Callable[[Dict[str, object]], None]], optional): Optional callback
+            to run when this element's value changes.
     """
 
     def __init__(

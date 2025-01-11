@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 import time
-from collections import deque
 from dataclasses import dataclass
-from threading import Condition
 from typing import TYPE_CHECKING, Literal
 
 from marimo._ast.cell import CellId_t
 from marimo._messaging.cell_output import CellChannel, CellOutput
+from marimo._messaging.mimetypes import KnownMimeType
 
 if TYPE_CHECKING:
+    from collections import deque
+    from threading import Condition
     from typing import Optional
 
     from marimo._messaging.types import Stream
@@ -26,6 +27,7 @@ class ConsoleMsg:
     stream: StreamT
     cell_id: CellId_t
     data: str
+    mimetype: KnownMimeType
 
 
 def _write_console_output(
@@ -33,6 +35,7 @@ def _write_console_output(
     stream_type: StreamT,
     cell_id: CellId_t,
     data: str,
+    mimetype: KnownMimeType,
 ) -> None:
     from marimo._messaging.ops import CellOp
 
@@ -40,10 +43,14 @@ def _write_console_output(
         cell_id=cell_id,
         console=CellOutput(
             channel=stream_type,
-            mimetype="text/plain",
+            mimetype=mimetype,
             data=data,
         ),
     ).broadcast(stream)
+
+
+def _can_merge_outputs(first: ConsoleMsg, second: ConsoleMsg) -> bool:
+    return first.stream == second.stream and first.mimetype == second.mimetype
 
 
 def _add_output_to_buffer(
@@ -56,7 +63,7 @@ def _add_output_to_buffer(
         if cell_id in outputs_buffered_per_cell
         else None
     )
-    if buffer and buffer[-1].stream == console_output.stream:
+    if buffer and _can_merge_outputs(buffer[-1], console_output):
         buffer[-1].data += console_output.data
     elif buffer:
         buffer.append(console_output)
@@ -109,7 +116,11 @@ def buffered_writer(
         for cell_id, buffer in outputs_buffered_per_cell.items():
             for output in buffer:
                 _write_console_output(
-                    stream, output.stream, cell_id, output.data
+                    stream,
+                    output.stream,
+                    cell_id,
+                    output.data,
+                    output.mimetype,
                 )
         outputs_buffered_per_cell = {}
         timer = None

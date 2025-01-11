@@ -1,13 +1,18 @@
 # Copyright 2024 Marimo. All rights reserved.
 from __future__ import annotations
 
-from typing import Any, Optional
+import time
+from dataclasses import asdict
+from typing import TYPE_CHECKING, Any, Optional
 
-from starlette.testclient import TestClient
-
-from marimo._messaging.ops import KernelReady
-from marimo._server.sessions import Session, SessionManager
+from marimo._messaging.ops import CellOp, KernelCapabilities, KernelReady
+from marimo._server.sessions import Session
 from marimo._utils.parse_dataclass import parse_raw
+from tests._server.conftest import get_session_manager
+from tests._server.mocks import token_header
+
+if TYPE_CHECKING:
+    from starlette.testclient import TestClient
 
 
 def create_response(
@@ -21,7 +26,11 @@ def create_response(
         "resumed": False,
         "ui_values": {},
         "last_executed_code": {},
+        "last_execution_time": {},
+        "kiosk": False,
         "configs": [{"disabled": False, "hide_code": False}],
+        "app_config": {"width": "full"},
+        "capabilities": asdict(KernelCapabilities()),
     }
     response.update(partial_response)
     return response
@@ -30,18 +39,18 @@ def create_response(
 def headers(session_id: str) -> dict[str, str]:
     return {
         "Marimo-Session-Id": session_id,
-        "Marimo-Server-Token": "fake-token",
+        **token_header("fake-token"),
     }
 
 
 HEADERS = {
-    "Marimo-Server-Token": "fake-token",
+    **token_header("fake-token"),
 }
 
 
 def assert_kernel_ready_response(
     raw_data: dict[str, Any], response: dict[str, Any]
-):
+) -> None:
     data = parse_raw(raw_data["data"], KernelReady)
     expected = parse_raw(response, KernelReady)
     assert data.cell_ids == expected.cell_ids
@@ -51,14 +60,13 @@ def assert_kernel_ready_response(
     assert data.resumed == expected.resumed
     assert data.ui_values == expected.ui_values
     assert data.configs == expected.configs
+    assert data.app_config == expected.app_config
+    assert data.last_execution_time == expected.last_execution_time
+    assert data.capabilities == expected.capabilities
 
 
 def get_session(client: TestClient, session_id: str) -> Optional[Session]:
     return get_session_manager(client).get_session(session_id)
-
-
-def get_session_manager(client: TestClient) -> SessionManager:
-    return client.app.state.session_manager  # type: ignore
 
 
 def test_refresh_session(client: TestClient) -> None:
@@ -67,7 +75,16 @@ def test_refresh_session(client: TestClient) -> None:
         assert_kernel_ready_response(data, create_response({}))
 
     # Check the session still exists after closing the websocket
-    assert get_session(client, "123")
+    session = get_session(client, "123")
+    session_view = session.session_view
+    assert session
+
+    # Mimic cell execution time save
+    cell_op = CellOp("Hbol")
+    session_view.save_execution_time(cell_op, "start")
+    time.sleep(0.123)
+    session_view.save_execution_time(cell_op, "end")
+    last_exec_time = session_view.last_execution_time["Hbol"]
 
     # New session with new ID (simulates refresh)
     # We should resume the current session
@@ -77,7 +94,15 @@ def test_refresh_session(client: TestClient) -> None:
         assert data == {"op": "reconnected", "data": {}}
         # Resume the session
         data = websocket.receive_json()
-        assert_kernel_ready_response(data, create_response({"resumed": True}))
+        assert_kernel_ready_response(
+            data,
+            create_response(
+                {
+                    "resumed": True,
+                    "last_execution_time": {"Hbol": last_exec_time},
+                }
+            ),
+        )
         # Send a value to the kernel
         response = client.post(
             "/api/kernel/set_ui_element_value",
@@ -110,6 +135,7 @@ def test_refresh_session(client: TestClient) -> None:
                         "ui-element-2": "value2",
                     },
                     "resumed": True,
+                    "last_execution_time": {"Hbol": last_exec_time},
                 }
             ),
         )
@@ -124,7 +150,11 @@ def test_refresh_session(client: TestClient) -> None:
 
 
 def test_save_session(client: TestClient) -> None:
-    filename = get_session_manager(client).filename
+    filename = (
+        get_session_manager(client)
+        .file_router.get_single_app_file_manager()
+        .filename
+    )
     with client.websocket_connect("/ws?session_id=123") as websocket:
         data = websocket.receive_json()
         assert_kernel_ready_response(data, create_response({}))
@@ -213,10 +243,9 @@ def test_save_config(client: TestClient) -> None:
         )
 
     # Check the session still exists after closing the websocket
-    assert (
-        get_session(client, "123").app_file_manager.app.config.width == "full"
-    )
-    assert get_session_manager(client).app_config().width == "full"
+    session = get_session(client, "123")
+    assert session
+    assert session.app_file_manager.app.config.width == "full"
 
     # Loading index page should have the new config
     response = client.get("/")
@@ -232,11 +261,13 @@ def test_restart_session(client: TestClient) -> None:
         data = websocket.receive_json()
         assert_kernel_ready_response(data, create_response({}))
 
-    # Send save request
-    client.post(
+    # Restart the session
+    response = client.post(
         "/api/kernel/restart_session",
         headers=headers("123"),
     )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"success": True}
 
     # Check the session still exists after closing the websocket
     assert not get_session(client, "123")

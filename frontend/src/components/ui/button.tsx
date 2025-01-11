@@ -1,16 +1,18 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
-import { VariantProps, cva } from "class-variance-authority";
+import { type VariantProps, cva } from "class-variance-authority";
 
 import { cn } from "@/utils/cn";
+import { parseShortcut } from "@/core/hotkeys/shortcuts";
+import { useEventListener } from "@/hooks/useEventListener";
 
 const activeCommon = "active:shadow-xsSolid";
 
 const buttonVariants = cva(
   cn(
     "disabled:opacity-50 disabled:pointer-events-none",
-    "inline-flex mb-1 items-center justify-center rounded-md text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background",
+    "inline-flex items-center justify-center rounded-md text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background",
   ),
   {
     variants: {
@@ -46,9 +48,10 @@ const buttonVariants = cva(
           activeCommon,
         ),
         outline: cn(
-          "border border-slate-500 shadow-smSolid",
-          "hover:bg-secondary/90 hover:text-secondary-foreground",
-          "hover:border-input",
+          "border border-slate-300 shadow-smSolid",
+          "hover:bg-accent hover:text-accent-foreground",
+          "hover:border-primary",
+          "aria-selected:text-accent-foreground aria-selected:border-primary",
           activeCommon,
         ),
         secondary: cn(
@@ -58,11 +61,14 @@ const buttonVariants = cva(
         ),
         text: cn("opacity-80 hover:opacity-100", "active:opacity-100"),
         ghost: cn(
-          "hover:bg-accent hover:text-accent-foreground hover:shadow-smSolid border border-transparent",
+          "border border-transparent",
+          "hover:bg-accent hover:text-accent-foreground hover:shadow-xsSolid",
           activeCommon,
           "active:text-accent-foreground",
         ),
         link: "underline-offset-4 hover:underline text-link",
+        linkDestructive:
+          "underline-offset-4 hover:underline text-destructive underline-destructive",
       },
       size: {
         default: "h-10 py-2 px-4",
@@ -86,10 +92,40 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     Omit<VariantProps<typeof buttonVariants>, "disabled"> {
   asChild?: boolean;
+  keyboardShortcut?: string;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  (
+    { className, variant, size, asChild = false, keyboardShortcut, ...props },
+    ref,
+  ) => {
+    const buttonRef = React.useRef<HTMLButtonElement>(null);
+
+    React.useImperativeHandle(
+      ref,
+      // eslint-disable-next-line @typescript-eslint/non-nullable-type-assertion-style
+      () => buttonRef.current as HTMLButtonElement,
+    );
+
+    const handleKeyPress = React.useCallback(
+      (e: KeyboardEvent) => {
+        if (!keyboardShortcut) {
+          return;
+        }
+        if (parseShortcut(keyboardShortcut)(e)) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (buttonRef?.current && !buttonRef.current.disabled) {
+            buttonRef.current.click();
+          }
+        }
+      },
+      [keyboardShortcut],
+    );
+
+    useEventListener(document, "keydown", handleKeyPress);
+
     const Comp = asChild ? Slot : "button";
     return (
       <Comp
@@ -100,8 +136,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             className,
             disabled: props.disabled,
           }),
+          className,
         )}
-        ref={ref}
+        ref={buttonRef}
         {...props}
       />
     );

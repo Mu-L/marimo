@@ -16,14 +16,12 @@ def callout(
 ) -> Html:
     """Build a callout output.
 
-    **Args.**
+    Args:
+        value: A value to render in the callout
+        kind: The kind of callout (affects styling).
 
-    - `value`: A value to render in the callout
-    - `kind`: The kind of callout (affects styling).
-
-    **Returns.**
-
-    - An HTML object.
+    Returns:
+        Html (marimo.Html): An HTML object.
     """
     return Html(
         build_stateless_plugin(

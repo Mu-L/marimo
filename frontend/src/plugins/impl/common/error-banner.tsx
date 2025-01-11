@@ -10,7 +10,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/utils/cn";
-import { VariantProps, cva } from "class-variance-authority";
+import { type VariantProps, cva } from "class-variance-authority";
+import { Logger } from "@/utils/Logger";
 
 export const ErrorBanner = ({
   error,
@@ -24,12 +25,14 @@ export const ErrorBanner = ({
   if (!error) {
     return null;
   }
+  Logger.error(error);
 
   const message = prettyError(error);
 
   return (
     <>
       <Banner
+        kind="danger"
         className={className}
         clickable={true}
         onClick={() => setOpen(true)}
@@ -55,38 +58,42 @@ export const ErrorBanner = ({
   );
 };
 
-const bannerStyle = cva("text-sm p-2 border whitespace-pre-wrap", {
-  variants: {
-    kind: {
-      danger: `text-error border-[var(--red-6)] bg-[var(--red-2)]`,
-      info: `text-primary border-[var(--blue-6)] bg-[var(--blue-2)]`,
-      warn: `text-warning border-[var(--yellow-6)] bg-[var(--yellow-2)]`,
+const bannerStyle = cva(
+  "text-sm p-2 border whitespace-pre-wrap overflow-hidden",
+  {
+    variants: {
+      kind: {
+        danger:
+          "text-error border-[var(--red-6)] shadow-mdSolid shadow-error bg-[var(--red-1)]",
+        info: "text-primary border-[var(--blue-6)] shadow-mdSolid shadow-accent bg-[var(--blue-1)]",
+        warn: "text-warning border-[var(--yellow-6)] bg-[var(--yellow-2)]",
+      },
+      clickable: {
+        true: "cursor-pointer",
+      },
     },
-    clickable: {
-      true: "cursor-pointer",
-    },
-  },
-  compoundVariants: [
-    {
-      clickable: true,
-      kind: "danger",
-      className: "hover:bg-[var(--red-3)]",
-    },
-    {
-      clickable: true,
+    compoundVariants: [
+      {
+        clickable: true,
+        kind: "danger",
+        className: "hover:bg-[var(--red-3)]",
+      },
+      {
+        clickable: true,
+        kind: "info",
+        className: "hover:bg-[var(--blue-3)]",
+      },
+      {
+        clickable: true,
+        kind: "warn",
+        className: "hover:bg-[var(--yellow-3)]",
+      },
+    ],
+    defaultVariants: {
       kind: "info",
-      className: "hover:bg-[var(--blue-3)]",
     },
-    {
-      clickable: true,
-      kind: "warn",
-      className: "hover:bg-[var(--yellow-3)]",
-    },
-  ],
-  defaultVariants: {
-    kind: "info",
   },
-});
+);
 
 export const Banner = ({
   kind,

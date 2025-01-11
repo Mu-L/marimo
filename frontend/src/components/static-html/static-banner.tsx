@@ -3,7 +3,7 @@
 /* eslint-disable react/jsx-no-target-blank */
 
 import { isStaticNotebook } from "@/core/static/static-state";
-import React from "react";
+import type React from "react";
 import { Button } from "../ui/button";
 import { toast } from "../ui/use-toast";
 import { getMarimoCode } from "@/core/dom/marimo-tag";
@@ -18,21 +18,29 @@ import {
   DialogTrigger,
 } from "../ui/dialog";
 import { CopyIcon, DownloadIcon } from "lucide-react";
-import { createShareableLink } from "@/core/pyodide/share";
+import { createShareableLink } from "@/core/wasm/share";
+import { copyToClipboard } from "@/utils/copy";
+import { Constants } from "@/core/constants";
 
 export const StaticBanner: React.FC = () => {
   if (!isStaticNotebook()) {
     return null;
   }
 
+  const code = getMarimoCode();
+  if (!code) {
+    return null;
+  }
+
   return (
-    <div className="px-4 py-2 bg-[var(--sky-2)] border-b border-[var(--sky-7)] text-md text-[var(--sky-11)] font-semibold flex justify-between items-center gap-4">
+    <div className="px-4 py-2 bg-[var(--sky-2)] border-b border-[var(--sky-7)] text-md text-[var(--sky-11)] font-semibold flex justify-between items-center gap-4 no-print">
       <span>
         This is a static Python notebook built using{" "}
         <a
-          href="https://github.com/marimo-team/marimo"
+          href={Constants.githubPage}
           target="_blank"
           className="underline"
+          rel="noreferrer"
         >
           marimo
         </a>
@@ -41,13 +49,13 @@ export const StaticBanner: React.FC = () => {
         Some interactive features may not work, see ways to run or edit this.
       </span>
       <span className="flex-shrink-0">
-        <StaticBannerDialog />
+        <StaticBannerDialog code={code} />
       </span>
     </div>
   );
 };
 
-const StaticBannerDialog = () => {
+const StaticBannerDialog = ({ code }: { code: string }) => {
   let filename = getFilenameFromDOM() || "notebook.py";
   // Trim the path
   const lastSlash = filename.lastIndexOf("/");
@@ -56,13 +64,17 @@ const StaticBannerDialog = () => {
   }
 
   const href = window.location.href;
-  const code = getMarimoCode();
   const wasmLink = createShareableLink({ code });
 
   return (
     <Dialog>
       <DialogTrigger asChild={true}>
-        <Button variant="secondary">Run or edit this notebook</Button>
+        <Button
+          data-testid="static-notebook-dialog-trigger"
+          variant="secondary"
+        >
+          Run or edit this notebook
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -70,9 +82,10 @@ const StaticBannerDialog = () => {
           <DialogDescription className="pt-4 text-md text-left">
             This is a static notebook built using{" "}
             <a
-              href="https://github.com/marimo-team/marimo"
+              href={Constants.githubPage}
               target="_blank"
               className="text-link hover:underline"
+              rel="noreferrer"
             >
               marimo
             </a>
@@ -100,6 +113,7 @@ const StaticBannerDialog = () => {
               href={wasmLink}
               target="_blank"
               className="text-link hover:underline"
+              rel="noreferrer"
             >
               {wasmLink.slice(0, 40)}...
             </a>
@@ -113,9 +127,10 @@ const StaticBannerDialog = () => {
         </DialogHeader>
         <div className="flex gap-4 flex-wrap">
           <Button
+            data-testid="copy-static-notebook-dialog-button"
             variant="secondary"
-            onClick={() => {
-              window.navigator.clipboard.writeText(code);
+            onClick={async () => {
+              await copyToClipboard(code);
               toast({ title: "Copied to clipboard" });
             }}
           >
@@ -123,6 +138,7 @@ const StaticBannerDialog = () => {
             Copy code
           </Button>
           <Button
+            data-testid="download-static-notebook-dialog-button"
             variant="secondary"
             onClick={() => {
               downloadBlob(new Blob([code], { type: "text/plain" }), filename);

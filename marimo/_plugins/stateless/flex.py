@@ -1,14 +1,16 @@
 # Copyright 2024 Marimo. All rights reserved.
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from marimo._output.builder import h
 from marimo._output.formatting import as_html
 from marimo._output.hypertext import Html
 from marimo._output.rich_help import mddoc
 from marimo._output.utils import create_style
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def _flex(
@@ -20,7 +22,7 @@ def _flex(
     align: Optional[Literal["start", "end", "center", "stretch"]],
     wrap: bool,
     gap: float,
-    widths: Optional[Sequence[float]],
+    child_flexes: Optional[Sequence[Optional[float]]],
 ) -> Html:
     justify_content_map = {
         "start": "flex-start",
@@ -40,6 +42,7 @@ def _flex(
     style = create_style(
         {
             "display": "flex",
+            "flex": "1",
             "flex-direction": direction,
             "justify-content": justify_content_map[justify],
             "align-items": align_items_map[align],
@@ -49,12 +52,12 @@ def _flex(
     )
 
     def create_style_for_item(idx: int) -> Optional[str]:
-        if widths is None:
+        if child_flexes is None:
             return ""
-        width = widths[idx]
-        if width is None:
+        child_flex = child_flexes[idx]
+        if child_flex is None:
             return ""
-        return create_style({"flex": f"{width}"})
+        return create_style({"flex": f"{child_flex}"})
 
     grid_items = [
         h.div(as_html(item).text, style=create_style_for_item(i))
@@ -66,52 +69,70 @@ def _flex(
 @mddoc
 def vstack(
     items: Sequence[object],
+    *,
     align: Optional[Literal["start", "end", "center", "stretch"]] = None,
+    justify: Literal[
+        "start", "center", "end", "space-between", "space-around"
+    ] = "start",
     gap: float = 0.5,
+    heights: Optional[Literal["equal"] | Sequence[float]] = None,
 ) -> Html:
     """Stack items vertically, in a column.
 
     Combine with `hstack` to build a grid of items.
 
-    **Example.**
+    Examples:
+        Build a column of items:
+        ```python
+        # Build a column of items
+        mo.vstack([mo.md("..."), mo.ui.text_area()])
+        ```
 
-    ```python3
-    # Build a column of items
-    mo.vstack([mo.md("..."), mo.ui.text_area()])
-    ```
+        Build a grid:
+        ```python
+        # Build a grid.
+        mo.vstack(
+            [
+                mo.hstack([mo.md("..."), mo.ui.text_area()]),
+                mo.hstack([mo.ui.checkbox(), mo.ui.text(), mo.ui.date()]),
+            ]
+        )
+        ```
 
-    ```python3
-    # Build a grid.
-    mo.vstack([
-        mo.hstack([mo.md("..."), mo.ui.text_area()]),
-        mo.hstack([mo.ui.checkbox(), mo.ui.text(), mo.ui.date()])
-    ])
-    ```
+    Args:
+        items (Sequence[object]): A list of items.
+        align (Optional[Literal["start", "end", "center", "stretch"]]): Align items
+            horizontally: start, end, center, or stretch.
+        justify (Literal["start", "center", "end", "space-between", "space-around"]):
+            Justify items vertically: start, center, end, space-between, or space-around.
+            Defaults to "start".
+        gap (float): Gap between items as a float in rem. 1rem is 16px by default.
+            Defaults to 0.5.
+        heights (Optional[Literal["equal"] | Sequence[float]]): "equal" to give items
+            equal height; or a list of relative heights with same length as `items`,
+            eg, [1, 2] means the second item is twice as tall as the first; or None
+            for a sensible default.
 
-    **Args.**
-
-    - `items`: A list of items.
-    - `align`: Align items horizontally: start, end, center, or stretch.
-    - `gap`: Gap between items as a float in rem. 1rem is 16px by default.
-
-    **Returns.**
-
-    - An `Html` object.
+    Returns:
+        Html: An Html object.
     """
     return _flex(
         items,
         direction="column",
-        justify="start",
+        justify=justify,
         align=align,
         wrap=False,
         gap=gap,
-        widths=None,
+        child_flexes=[1 for _ in range(len(items))]
+        if heights == "equal"
+        else heights,
     )
 
 
 @mddoc
 def hstack(
     items: Sequence[object],
+    *,
     justify: Literal[
         "start", "center", "end", "space-between", "space-around"
     ] = "space-between",
@@ -124,36 +145,41 @@ def hstack(
 
     Combine with `vstack` to build a grid.
 
-    **Example.**
+    Examples:
+        Build a row of items:
+        ```python
+        # Build a row of items
+        mo.hstack([mo.md("..."), mo.ui.text_area()])
+        ```
 
-    ```python3
-    # Build a row of items
-    mo.hstack([mo.md("..."), mo.ui.text_area()])
-    ```
+        Build a grid:
+        ```python
+        # Build a grid.
+        mo.hstack(
+            [
+                mo.vstack([mo.md("..."), mo.ui.text_area()]),
+                mo.vstack([mo.ui.checkbox(), mo.ui.text(), mo.ui.date()]),
+            ]
+        )
+        ```
 
-    ```python3
-    # Build a grid.
-    mo.hstack([
-        mo.vstack([mo.md("..."), mo.ui.text_area()]),
-        mo.vstack([mo.ui.checkbox(), mo.ui.text(), mo.ui.date()])
-    ])
-    ```
+    Args:
+        items (Sequence[object]): A list of items.
+        justify (Literal["start", "center", "end", "space-between", "space-around"]):
+            Justify items horizontally: start, center, end, space-between, or space-around.
+            Defaults to "space-between".
+        align (Optional[Literal["start", "end", "center", "stretch"]]): Align items
+            vertically: start, end, center, or stretch.
+        wrap (bool): Wrap items or not. Defaults to False.
+        gap (float): Gap between items as a float in rem. 1rem is 16px by default.
+            Defaults to 0.5.
+        widths (Optional[Literal["equal"] | Sequence[float]]): "equal" to give items
+            equal width; or a list of relative widths with same length as `items`,
+            eg, [1, 2] means the second item is twice as wide as the first; or None
+            for a sensible default.
 
-    **Args.**
-
-    - `items`: A list of items.
-    - `justify`: Justify items horizontally: start, center, end,
-        space-between, or space-around.
-    - `align`: Align items vertically: start, end, center, or stretch.
-    - `wrap`: Wrap items or not.
-    - `gap`: Gap between items as a float in rem. 1rem is 16px by default.
-    - `widths`: "equal" to give items equal width; or a list of relative widths
-      with same length as `items`, eg, [1, 2] means the second item is twice as
-      wide as the first; or `None` for a sensible default
-
-    **Returns.**
-
-    - An `Html` object.
+    Returns:
+        Html: An Html object.
     """
     return _flex(
         items,
@@ -162,7 +188,9 @@ def hstack(
         align=align,
         wrap=wrap,
         gap=gap,
-        widths=[1 for _ in range(len(items))] if widths == "equal" else widths,
+        child_flexes=[1 for _ in range(len(items))]
+        if widths == "equal"
+        else widths,
     )
 
 
@@ -180,17 +208,16 @@ def _spaced(
     A grid built with this function has a fixed number of items per row.
     For more flexibility, use `hstack` and `vstack`.
 
-    **Args.**
+    Args:
+        items (Sequence[object]): Items to arrange
+        justify (Literal["left", "right", "center", "normal"]): Justify items normally,
+            left, right, or center.
+        items_per_row (Optional[int]): Number of items to place in each row
+        column_gap (float): Minimum gap in rem between columns
+        row_gap (float): Minimum gap in rem between rows
 
-    - `items`: Items to arrange
-    - `justify`: Justify items normally, left, right, or center.
-    - `items_per_row`: Number of items to place in each row
-    - `column_gap`: Minimum gap in rem between columns
-    - `row_gap`: Minimum gap in rem between rows
-
-    **Returns.**
-
-    - An `Html` object.
+    Returns:
+        Html: An `Html` object.
     """
     items_per_row = len(items) if items_per_row is None else items_per_row
     style = create_style(

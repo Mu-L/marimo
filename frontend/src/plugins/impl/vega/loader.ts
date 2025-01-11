@@ -1,38 +1,112 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-// @ts-expect-error - no types
-import { loader as createLoader, read, typeParsers } from "vega-loader";
-import { DataFormat } from "./types";
+import type { DataFormat } from "./types";
 import { isNumber } from "lodash-es";
+import { typeParsers, createLoader, read, type DataType } from "./vega-loader";
+import { Objects } from "@/utils/objects";
+import { Logger } from "@/utils/Logger";
 
-// Augment the typeParsers to support Date
-typeParsers.date = (value: string) => new Date(value).toISOString();
+type Unsubscribe = () => void;
+type Middleware = () => Unsubscribe;
+
+// Store all the previous type parsers so we can restore them later
 const previousIntegerParser = typeParsers.integer;
-// We need to use BigInt for numbers to support large numbers
-const bigIntIntegerParser = (v: string) => {
-  if (v === "") {
-    return "";
-  }
+const previousNumberParser = typeParsers.number;
+const previousDateParser = typeParsers.date;
+const previousBooleanParser = typeParsers.boolean;
 
-  if (isNumber(Number.parseInt(v))) {
-    try {
-      return BigInt(v);
-    } catch {
-      // Floats like 2.0 are parseable as ints but not
-      // as BigInt
-      return previousIntegerParser(v);
+const BIG_INT_MIDDLEWARE: Middleware = () => {
+  // Custom parser to:
+  // - handle BigInt
+  // - handle inf and -inf
+  typeParsers.integer = (v: string) => {
+    if (v === "") {
+      return "";
     }
-  } else {
-    return "";
-  }
+    if (v === "-inf") {
+      return v;
+    }
+    if (v === "inf") {
+      return v;
+    }
+
+    const parsedInt = Number.parseInt(v);
+    if (isNumber(parsedInt)) {
+      const needsBigInt = Math.abs(parsedInt) > Number.MAX_SAFE_INTEGER;
+      if (!needsBigInt) {
+        return previousIntegerParser(v);
+      }
+      try {
+        return BigInt(v);
+      } catch {
+        // Floats like 2.0 are parseable as ints but not
+        // as BigInt
+        return previousIntegerParser(v);
+      }
+    } else {
+      return "";
+    }
+  };
+  typeParsers.number = (v: string) => {
+    if (v === "-inf") {
+      return v;
+    }
+    if (v === "inf") {
+      return v;
+    }
+    return previousNumberParser(v);
+  };
+
+  return () => {
+    typeParsers.integer = previousIntegerParser;
+    typeParsers.number = previousNumberParser;
+  };
 };
 
-function enableBigInt() {
-  typeParsers.integer = bigIntIntegerParser;
-}
+const DATE_MIDDLEWARE: Middleware = () => {
+  typeParsers.date = (value: string) => {
+    if (value === "") {
+      return "";
+    }
+    if (value == null) {
+      return null;
+    }
+    // Only parse strings that look like ISO dates (YYYY-MM-DD with optional time)
+    const isoDateRegex = /^\d{4}-\d{2}-\d{2}(T[\d.:]+(Z|[+-]\d{2}:?\d{2})?)?$/;
+    if (!isoDateRegex.test(value)) {
+      return value;
+    }
+    try {
+      const date = new Date(value);
+      // Ensure the date is valid by checking if it can be converted back to ISO
+      if (Number.isNaN(date.getTime())) {
+        return value;
+      }
+      return date;
+    } catch {
+      Logger.warn(`Failed to parse date: ${value}`);
+      return value;
+    }
+  };
+  return () => {
+    typeParsers.date = previousDateParser;
+  };
+};
 
-function disableBigInt() {
-  typeParsers.integer = previousIntegerParser;
-}
+// Custom boolean parser:
+//
+// Pandas serializes booleans as True/False, but JSON (and vega) requires
+// lowercase
+const customBooleanParser = (v: string) => {
+  if (v === "True") {
+    return true;
+  }
+  if (v === "False") {
+    return false;
+  }
+  return previousBooleanParser(v);
+};
+
+typeParsers.boolean = customBooleanParser;
 
 export const vegaLoader = createLoader();
 
@@ -41,12 +115,44 @@ export const vegaLoader = createLoader();
  *
  * This resolves to an array of objects, where each object represents a row.
  */
-export function vegaLoadData(
+export async function vegaLoadData<T = object>(
   url: string,
   format: DataFormat | undefined | { type: "csv"; parse: "auto" },
-  handleBigInt = false,
-): Promise<object[]> {
-  return vegaLoader.load(url).then((csvData: string) => {
+  opts: {
+    // We support enabling/disabling since the Table enables it
+    // but Vega does not support BigInts
+    handleBigInt?: boolean;
+    replacePeriod?: boolean;
+  } = {},
+): Promise<T[]> {
+  const { handleBigInt = false, replacePeriod = false } = opts;
+
+  const middleware: Middleware[] = [DATE_MIDDLEWARE];
+  if (handleBigInt) {
+    middleware.push(BIG_INT_MIDDLEWARE);
+  }
+
+  let unsubscribes: Unsubscribe[] = [];
+
+  // Load the data
+  try {
+    let csvOrJsonData = await vegaLoader.load(url);
+    if (!format) {
+      // Infer by trying to parse
+      if (typeof csvOrJsonData === "string") {
+        try {
+          JSON.parse(csvOrJsonData);
+          format = { type: "json" };
+        } catch {
+          format = { type: "csv", parse: "auto" };
+        }
+      }
+      if (typeof csvOrJsonData === "object") {
+        format = { type: "json" };
+      }
+    }
+
+    const isCsv = format?.type === "csv";
     // CSV data comes columnar and may have duplicate column names.
     // We need to uniquify the column names before parsing since vega-loader
     // returns an array of objects which drops duplicate keys.
@@ -54,65 +160,114 @@ export function vegaLoadData(
     // We make the column names unique by appending a number to the end of
     // each duplicate column name. If we want to preserve the original key
     // we would need to store the data in columnar format.
-    if (typeof csvData === "string") {
-      csvData = uniquifyColumnNames(csvData);
+    if (isCsv && typeof csvOrJsonData === "string") {
+      csvOrJsonData = uniquifyColumnNames(csvOrJsonData);
+    }
+    // Replace periods in column names with a one-dot leader.
+    // Some downstream libraries use periods as a nested key separator.
+    if (isCsv && typeof csvOrJsonData === "string" && replacePeriod) {
+      csvOrJsonData = replacePeriodsInColumnNames(csvOrJsonData);
     }
 
-    // We support enabling/disabling since the Table enables it
-    // but Vega does not support BigInts
-    if (handleBigInt) {
-      enableBigInt();
+    let parse = (format?.parse as Record<string, DataType>) || "auto";
+    // Map some of our data types to Vega's data types
+    // - time -> string
+    // - datetime -> date
+    if (typeof parse === "object") {
+      parse = Objects.mapValues(parse, (value) => {
+        if (value === "time") {
+          return "string";
+        }
+        if (value === "datetime") {
+          return "date";
+        }
+        return value;
+      });
     }
 
+    // Apply middleware
+    unsubscribes = middleware.map((m) => m());
     // Always set parse to auto for csv data, to be able to parse dates and floats
-    const results =
-      format && format.type === "csv"
-        ? // csv -> json
-          read(csvData, { ...format, parse: "auto" })
-        : read(csvData, format);
+    const results = isCsv
+      ? // csv -> json
+        read(csvOrJsonData, {
+          ...format,
+          parse: parse,
+        })
+      : read(csvOrJsonData, format);
 
-    if (handleBigInt) {
-      disableBigInt();
-    }
-
-    return results;
-  });
+    return results as T[];
+  } finally {
+    // Unsubscribe from middleware
+    unsubscribes.forEach((u) => u());
+  }
 }
 
 export function parseCsvData(csvData: string, handleBigInt = true): object[] {
+  const middleware: Middleware[] = [DATE_MIDDLEWARE];
   if (handleBigInt) {
-    enableBigInt();
+    middleware.push(BIG_INT_MIDDLEWARE);
   }
+
+  // Apply middleware
+  const unsubscribes = middleware.map((m) => m());
+
   const data = read(csvData, { type: "csv", parse: "auto" });
-  if (handleBigInt) {
-    disableBigInt();
-  }
+
+  // Unsubscribe from middleware
+  unsubscribes.forEach((u) => u());
+
   return data;
 }
 
-export function uniquifyColumnNames(csvData: string): string {
-  if (!csvData || !csvData.includes(",")) {
+/**
+ * Make column names unique by appending a zero-width space to the end of each duplicate column name.
+ */
+function uniquifyColumnNames(csvData: string): string {
+  if (!csvData?.includes(",")) {
     return csvData;
   }
 
+  return mapColumnNames(csvData, (headerNames) => {
+    const existingNames = new Set<string>();
+    return headerNames.map((name) => {
+      const uniqueName = getUniqueKey(name, existingNames);
+      existingNames.add(uniqueName);
+      return uniqueName;
+    });
+  });
+}
+
+/**
+ * Replace periods in column names with a one-dot leader.
+ * This is because some downstream libraries use periods as a nested key separator.
+ */
+function replacePeriodsInColumnNames(csvData: string): string {
+  // This looks like a period but it's actually a one-dot leader
+  // https://www.compart.com/en/unicode/U+2024
+  const ONE_DOT_LEADER = "․";
+  if (!csvData?.includes(".")) {
+    return csvData;
+  }
+
+  return mapColumnNames(csvData, (headerNames) => {
+    return headerNames.map((name) => name.replaceAll(".", ONE_DOT_LEADER));
+  });
+}
+
+function mapColumnNames(
+  csvData: string,
+  fn: (names: string[]) => string[],
+): string {
   const lines = csvData.split("\n");
   const header = lines[0];
   const headerNames = header.split(",");
-
-  const existingNames = new Set<string>();
-  const newNames = [];
-  for (const name of headerNames) {
-    const uniqueName = getUniqueKey(name, existingNames);
-    newNames.push(uniqueName);
-    existingNames.add(uniqueName);
-  }
-
-  const uniqueHeader = newNames.join(",");
-  lines[0] = uniqueHeader;
+  const newNames = fn(headerNames);
+  lines[0] = newNames.join(",");
   return lines.join("\n");
 }
 
-export const ZERO_WIDTH_SPACE = "\u200B";
+const ZERO_WIDTH_SPACE = "\u200B";
 
 function getUniqueKey(key: string, existingKeys: Set<string>): string {
   let result = key;
@@ -124,3 +279,9 @@ function getUniqueKey(key: string, existingKeys: Set<string>): string {
 
   return result;
 }
+
+export const exportedForTesting = {
+  ZERO_WIDTH_SPACE,
+  uniquifyColumnNames,
+  replacePeriodsInColumnNames,
+};

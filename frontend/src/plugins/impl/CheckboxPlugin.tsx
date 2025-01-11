@@ -2,9 +2,9 @@
 import { useId } from "react";
 import { z } from "zod";
 
-import { IPlugin, IPluginProps } from "../types";
+import type { IPlugin, IPluginProps } from "../types";
 import { Checkbox } from "../../components/ui/checkbox";
-import { CheckedState } from "@radix-ui/react-checkbox";
+import type { CheckedState } from "@radix-ui/react-checkbox";
 import { Labeled } from "./common/labeled";
 
 export class CheckboxPlugin
@@ -38,7 +38,12 @@ const CheckboxComponent = ({
 
   return (
     <Labeled label={data.label} align="right" id={id}>
-      <Checkbox checked={value} onCheckedChange={onClick} id={id} />
+      <Checkbox
+        data-testid="marimo-plugin-checkbox"
+        checked={value}
+        onCheckedChange={onClick}
+        id={id}
+      />
     </Labeled>
   );
 };

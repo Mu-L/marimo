@@ -1,19 +1,17 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { EditorView } from "@codemirror/view";
-import { CellId } from "../cells/ids";
+
+import type { EditorView } from "@codemirror/view";
+import type { CellId } from "../cells/ids";
 import { Objects } from "../../utils/objects";
 import { sendFormat } from "../network/requests";
-import {
-  CellActions,
-  getNotebook,
-  notebookCellEditorViews,
-} from "../cells/cells";
+import { type CellActions, getNotebook } from "../cells/cells";
+import { notebookCellEditorViews } from "../cells/utils";
 import {
   getEditorCodeAsPython,
   updateEditorCodeFromPython,
 } from "./language/utils";
 import { StateEffect } from "@codemirror/state";
-import { getUserConfig } from "../config/config";
+import { getResolvedMarimoConfig } from "../config/config";
 
 export const formattingChangeEffect = StateEffect.define<boolean>();
 
@@ -29,10 +27,13 @@ export async function formatEditorViews(
 
   const formatResponse = await sendFormat({
     codes,
-    lineLength: getUserConfig().formatting.line_length,
+    lineLength: getResolvedMarimoConfig().formatting.line_length,
   });
 
-  for (const [cellId, formattedCode] of Objects.entries(formatResponse)) {
+  for (const [cellIdString, formattedCode] of Objects.entries(
+    formatResponse.codes,
+  )) {
+    const cellId = cellIdString as CellId;
     const originalCode = codes[cellId];
     const view = views[cellId];
 

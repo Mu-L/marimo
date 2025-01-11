@@ -5,26 +5,32 @@ import { X } from "lucide-react";
 
 import { cn } from "@/utils/cn";
 import { useRestoreFocus } from "./use-restore-focus";
+import { withFullScreenAsRoot } from "./fullscreen";
+import { StyleNamespace } from "@/theme/namespace";
 
 const Dialog = DialogPrimitive.Root;
 
 const DialogTrigger = DialogPrimitive.Trigger;
 
-const DialogPortal = ({
-  className,
-  children,
-  ...props
-}: DialogPrimitive.DialogPortalProps & { className?: string }) => (
-  <DialogPrimitive.Portal {...props}>
-    <div
-      className={cn(
-        "fixed inset-0 z-50 flex items-start justify-center sm:items-start sm:top-[15%]",
-        className,
-      )}
-    >
-      {children}
-    </div>
-  </DialogPrimitive.Portal>
+const DialogPortal = withFullScreenAsRoot(
+  ({
+    className,
+    children,
+    ...props
+  }: DialogPrimitive.DialogPortalProps & { className?: string }) => (
+    <DialogPrimitive.Portal {...props}>
+      <StyleNamespace>
+        <div
+          className={cn(
+            "fixed inset-0 z-50 flex items-start justify-center sm:items-start sm:top-[15%]",
+            className,
+          )}
+        >
+          {children}
+        </div>
+      </StyleNamespace>
+    </DialogPrimitive.Portal>
+  ),
 );
 DialogPortal.displayName = DialogPrimitive.Portal.displayName;
 
@@ -56,7 +62,7 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed z-50 grid w-full gap-4 rounded-b-lg border bg-background p-6 shadow-sm animate-in data-[state=open]:fade-in-90 data-[state=open]:slide-in-from-bottom-10 sm:max-w-lg sm:rounded-lg sm:zoom-in-90 data-[state=open]:sm:slide-in-from-bottom-0",
+        "fixed z-50 grid w-full gap-4 rounded-b-lg border bg-background p-6 shadow-sm animate-in data-[state=open]:fade-in-90 data-[state=open]:slide-in-from-bottom-10 sm:max-w-2xl sm:mx-4 sm:rounded-lg sm:zoom-in-90 data-[state=open]:sm:slide-in-from-bottom-0",
         className,
       )}
       {...restoreFocus}

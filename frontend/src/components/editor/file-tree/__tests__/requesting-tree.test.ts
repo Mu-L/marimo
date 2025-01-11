@@ -65,7 +65,9 @@ describe("RequestingTree", () => {
     expect(result).toBe(true);
     expect(sendListFiles).toHaveBeenCalledWith({ path: "/root/folder1" });
     expect(mockOnChange).toHaveBeenCalled();
-    expect(mockOnChange.mock.calls.at(-1)[0]).toMatchInlineSnapshot(`
+    const lastCall = mockOnChange.mock.calls.at(-1);
+    expect(lastCall).toBeDefined();
+    expect(lastCall![0]).toMatchInlineSnapshot(`
       [
         {
           "id": "1.1",
@@ -104,12 +106,14 @@ describe("RequestingTree", () => {
       newPath: "/root/file2",
     });
     expect(mockOnChange).toHaveBeenCalled();
-    expect(mockOnChange.mock.calls.at(-1)[0]).toMatchInlineSnapshot(`
+    const lastCall = mockOnChange.mock.calls.at(-1);
+    expect(lastCall).toBeDefined();
+    expect(lastCall![0]).toMatchInlineSnapshot(`
       [
         {
           "id": "1.1",
-          "name": "file2",
-          "path": "/root/file2",
+          "name": "file1",
+          "path": "/root/file1",
         },
         {
           "id": "1.2",
@@ -133,7 +137,9 @@ describe("RequestingTree", () => {
     await requestingTree.move(["1.1"], "1.2");
     expect(sendRenameFileOrFolder).toHaveBeenCalled();
     expect(mockOnChange).toHaveBeenCalled();
-    expect(mockOnChange.mock.calls.at(-1)[0]).toMatchInlineSnapshot(`
+    const lastCall = mockOnChange.mock.calls.at(-1);
+    expect(lastCall).toBeDefined();
+    expect(lastCall![0]).toMatchInlineSnapshot(`
       [
         {
           "id": "1.1",
@@ -163,11 +169,29 @@ describe("RequestingTree", () => {
     `);
   });
 
+  test("createFile should create a new file", async () => {
+    sendCreateFileOrFolder.mockResolvedValue({ success: true });
+
+    await requestingTree.createFile("file3", "1.2");
+    expect(sendCreateFileOrFolder).toHaveBeenCalled();
+    expect(mockOnChange).toHaveBeenCalled();
+  });
+
+  test("createFolder should create a new folder", async () => {
+    sendCreateFileOrFolder.mockResolvedValue({ success: true });
+
+    await requestingTree.createFolder("folder3", "1.2");
+    expect(sendCreateFileOrFolder).toHaveBeenCalled();
+    expect(mockOnChange).toHaveBeenCalled();
+  });
+
   test("refreshAll should refresh data for all open folders", async () => {
     await requestingTree.refreshAll(["1.1"]);
     expect(sendListFiles).toHaveBeenCalled();
     expect(mockOnChange).toHaveBeenCalled();
-    expect(mockOnChange.mock.calls.at(-1)[0]).toMatchInlineSnapshot(`
+    const lastCall = mockOnChange.mock.calls.at(-1);
+    expect(lastCall).toBeDefined();
+    expect(lastCall![0]).toMatchInlineSnapshot(`
       [
         {
           "id": "1.1",

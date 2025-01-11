@@ -1,12 +1,13 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { Trash2Icon } from "lucide-react";
+import type { RuntimeState } from "@/core/network/types";
 import { Tooltip } from "../../ui/tooltip";
-import { CellStatus } from "../../../core/cells/types";
 import { Button } from "../../ui/button";
-import { cn } from "../../../utils/cn";
+import { cn } from "@/utils/cn";
+import { Events } from "@/utils/events";
 
 export const DeleteButton = (props: {
-  status: CellStatus;
+  status: RuntimeState;
   appClosed: boolean;
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }): JSX.Element => {
@@ -32,17 +33,15 @@ export const DeleteButton = (props: {
         size="icon"
         onClick={onClick}
         data-testid="delete-button"
+        // Prevent stealing focus
+        // This is needed to delete cells when the cell editor
+        // is shown temporarily (e.g. when set to `hidden`)
+        onMouseDown={Events.preventFocus}
         className={cn(
           "hover:bg-transparent text-destructive/60 hover:text-destructive",
-          {
-            DeleteButton: true,
-            "inactive-button": appClosed || loading,
-            running: loading,
-          },
+          (appClosed || loading) && "inactive-button",
         )}
-        style={{
-          boxShadow: "none",
-        }}
+        style={{ boxShadow: "none" }}
       >
         <Trash2Icon size={14} />
       </Button>

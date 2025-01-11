@@ -2,8 +2,10 @@
 *.csv
 *.pdf
 *.txt
+!tests/**/*.txt
 
 # Byte-compiled / optimized / DLL files
+__pycache__
 __pycache__/
 *.py[cod]
 *$py.class
@@ -87,6 +89,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+uv.lock
 
 # editors
 *.swp
@@ -107,3 +110,8 @@ marimo/_static/
 marimo/_lsp/
 
 .vscode
+.vercel
+
+.marimo.toml
+.mypy_cache/
+__marimo__

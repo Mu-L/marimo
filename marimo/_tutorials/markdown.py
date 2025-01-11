@@ -1,7 +1,8 @@
 # Copyright 2024 Marimo. All rights reserved.
+
 import marimo
 
-__generated_with = "0.1.69"
+__generated_with = "0.9.30"
 app = marimo.App()
 
 
@@ -11,11 +12,9 @@ def __(mo):
         """
         # Hello, Markdown!
 
-        Use marimo's "`md`" function to embed rich text into your marimo
-        apps. This function compiles Markdown into HTML that marimo
-        can display.
+        Use marimo's "`md`" function to write markdown. This function compiles Markdown into HTML that marimo can display.
 
-        For example, here's the code that rendered the above title and 
+        For example, here's the code that rendered the above title and
         paragraph:
 
         ```python3
@@ -34,10 +33,32 @@ def __(mo):
     return
 
 
+@app.cell
+def __(mo):
+    mo.md(
+        """
+        **Tip: toggling between the Markdown and Python editor**
+
+        Although markdown is written with `mo.md`, marimo provides a markdown editor
+        that hides this boilerplate from you.
+
+        Toggle between the Markdown and Python
+        editors by clicking the blue icon in the top-right of the editor,
+        entering `Ctrl/Cmd+Shift+M`, or using the "cell actions menu". You can
+        also **hide** the markdown editor through the cell actions menu.
+
+        **Tip**: To interpolate Python values into markdown strings, you'll
+        need to use `mo.md(f"...")` directly; the markdown view does not support
+        f-strings.
+        """
+    )
+    return
+
+
 @app.cell(hide_code=True)
 def __(mo):
     mo.md(
-        r""" 
+        r"""
         ## LaTeX
         You can embed LaTeX in Markdown.
 
@@ -84,12 +105,29 @@ def __(mo):
 
 @app.cell(hide_code=True)
 def __(mo):
+    mo.accordion(
+        {
+            "Note: KaTeX": mo.md(
+                """
+                marimo actually uses KaTeX, a math typesetting library for the
+                web which supports a subset of LaTeX. For a list of
+                (un)supported commands, visit
+                https://katex.org/docs/support_table
+                """
+            )
+        }
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def __(mo):
     mo.md(
         """
         ## Interpolating Python values
 
         You can interpolate Python values into markdown using
-        `f-strings` and marimo's ` as_html` function. This lets you create 
+        `f-strings` and marimo's ` as_html` function. This lets you create
         markdown whose contents depend on data that changes at runtime.
 
         Here are some examples.
@@ -98,7 +136,7 @@ def __(mo):
     return
 
 
-@app.cell(hide_code=True)
+@app.cell
 def __(
     matplotlib_installed,
     missing_matplotlib_msg,
@@ -116,7 +154,6 @@ def __(
         _x = np.linspace(start=0, stop=2 * np.pi)
         plt.plot(_x, np.sin(_x))
         return plt.gca()
-
 
     mo.md(
         f"""
@@ -136,7 +173,7 @@ def __(
     return
 
 
-@app.cell(hide_code=True)
+@app.cell
 def __(mo):
     leaves = mo.ui.slider(1, 32, label="🍃: ")
 
@@ -156,7 +193,7 @@ def __(mo):
         {leaves}
         """
     )
-    return leaves,
+    return (leaves,)
 
 
 @app.cell
@@ -170,7 +207,7 @@ def __(mo):
     mo.accordion(
         {
             "Tip: UI elements can format themselves": """
-            marimo objects know how to format themselves, so you can omit the 
+            marimo objects know how to format themselves, so you can omit the
             call to `as_html`.
             """
         }
@@ -193,7 +230,6 @@ def __(missing_numpy_msg, mo, np, numpy_installed):
         y = np.sin(x)
         return pd.DataFrame({"x": x, "sin(x)": y})
 
-
     mo.md(
         f"""
         ### Other objects
@@ -212,7 +248,7 @@ def __(missing_numpy_msg, mo, np, numpy_installed):
         {mo.as_html(make_dataframe())}
         """
     )
-    return make_dataframe,
+    return (make_dataframe,)
 
 
 @app.cell(hide_code=True)
@@ -220,8 +256,8 @@ def __(mo):
     mo.accordion(
         {
             "Tip: outputs are automatically converted to HTML": """
-            `mo.as_html` is only needed when interpolating objects into 
-            markdown; the last expression of a cell (its output) is 
+            `mo.as_html` is only needed when interpolating objects into
+            markdown; the last expression of a cell (its output) is
             converted to HTML automatically.
             """
         }
@@ -261,14 +297,12 @@ def __(
     matplotlib_installed,
     missing_matplotlib_msg,
     missing_numpy_msg,
+    mo,
     np,
     numpy_installed,
     plt,
 ):
-    import functools
-
-
-    @functools.cache
+    @mo.cache
     def plotsin(amplitude, period):
         if not numpy_installed:
             return missing_numpy_msg
@@ -278,19 +312,19 @@ def __(
         plt.plot(x, amplitude * np.sin(2 * np.pi / period * x))
         plt.ylim(-2.2, 2.2)
         return plt.gca()
-    return functools, plotsin
+
+    return (plotsin,)
 
 
 @app.cell
 def __(amplitude, mo, period):
     mo.md(
         f"""
+        **A sin curve.**
 
-          **A sin curve.**
-
-          - {amplitude}
-          - {period}
-          """
+        - {amplitude}
+        - {period}
+        """
     )
     return
 
@@ -299,7 +333,6 @@ def __(amplitude, mo, period):
 def __(amplitude, mo, period, plotsin):
     mo.md(
         rf"""
-
         You're viewing the graph of
 
         \[
@@ -317,7 +350,9 @@ def __(amplitude, mo, period, plotsin):
 def __(mo):
     matplotlib_installed = False
     numpy_installed = False
-    missing_numpy_msg = mo.md("Oops! Looks like you don't have `numpy` installed.")
+    missing_numpy_msg = mo.md(
+        "Oops! Looks like you don't have `numpy` installed."
+    )
     missing_matplotlib_msg = mo.md(
         "Oops! Looks like you don't have `matplotlib` installed."
     )
@@ -350,6 +385,7 @@ def __():
     import math
 
     import marimo as mo
+
     return math, mo
 
 

@@ -1,16 +1,12 @@
 # Button
 
-```{eval-rst}
-.. marimo-embed::
-    @app.cell
-    def __():
-        mo.ui.button(label="Click me")
-        return
-```
+!!! tip "Looking for a submit/run button?"
+    If you're looking for a button to trigger computation on click, consider
+    using [`mo.ui.run_button`][marimo.ui.run_button].
 
-```{eval-rst}
-.. autoclass:: marimo.ui.button
-  :members:
 
-  .. autoclasstoc:: marimo._plugins.ui._impl.input.button
-```
+/// marimo-embed-file
+    filepath: examples/ui/button.py
+///
+
+::: marimo.ui.button

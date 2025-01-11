@@ -13,8 +13,10 @@ import { Input } from "../ui/input";
 import { CopyIcon } from "lucide-react";
 import { Events } from "@/utils/events";
 import { Tooltip } from "../ui/tooltip";
-import { createStaticHTMLNotebook } from "@/core/static/download-html";
 import { Constants } from "@/core/constants";
+import { exportAsHTML } from "@/core/network/requests";
+import { VirtualFileTracker } from "@/core/static/virtual-file-tracker";
+import { copyToClipboard } from "@/utils/copy";
 
 const BASE_URL = "https://static.marimo.app";
 
@@ -36,7 +38,11 @@ export const ShareStaticNotebookModal: React.FC<{
           e.preventDefault();
 
           onClose();
-          const html = await createStaticHTMLNotebook();
+          const html = await exportAsHTML({
+            download: false,
+            includeCode: true,
+            files: VirtualFileTracker.INSTANCE.filenames(),
+          });
 
           const prevToast = toast({
             title: "Uploading static notebook...",
@@ -100,6 +106,7 @@ export const ShareStaticNotebookModal: React.FC<{
         </DialogHeader>
         <div className="flex flex-col gap-6 py-4">
           <Input
+            data-testid="slug-input"
             id="slug"
             autoFocus={true}
             value={slug}
@@ -124,15 +131,20 @@ export const ShareStaticNotebookModal: React.FC<{
           </div>
         </div>
         <DialogFooter>
-          <Button variant="secondary" onClick={onClose}>
+          <Button
+            data-testid="cancel-share-static-notebook-button"
+            variant="secondary"
+            onClick={onClose}
+          >
             Cancel
           </Button>
           <Button
+            data-testid="share-static-notebook-button"
             aria-label="Save"
             variant="default"
             type="submit"
-            onClick={() => {
-              navigator.clipboard.writeText(url);
+            onClick={async () => {
+              await copyToClipboard(url);
             }}
           >
             Create
@@ -146,16 +158,21 @@ export const ShareStaticNotebookModal: React.FC<{
 const CopyButton = (props: { text: string }) => {
   const [copied, setCopied] = React.useState(false);
 
-  const copy = Events.stopPropagation((e) => {
+  const copy = Events.stopPropagation(async (e) => {
     e.preventDefault();
-    navigator.clipboard.writeText(props.text);
+    await copyToClipboard(props.text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   });
 
   return (
     <Tooltip content="Copied!" open={copied}>
-      <Button onClick={copy} size="xs" variant="secondary">
+      <Button
+        data-testid="copy-static-notebook-url-button"
+        onClick={copy}
+        size="xs"
+        variant="secondary"
+      >
         <CopyIcon size={14} strokeWidth={1.5} />
       </Button>
     </Tooltip>

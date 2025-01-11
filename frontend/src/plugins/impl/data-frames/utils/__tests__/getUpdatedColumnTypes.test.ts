@@ -1,51 +1,60 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { expect, describe, it } from "vitest";
 import { getUpdatedColumnTypes } from "../getUpdatedColumnTypes";
-import { TransformType } from "../../schema";
+import type { TransformType } from "../../schema";
+import type { ColumnId } from "../../types";
 
-const INITIAL_COLUMN_TYPES = {
-  col1: "str",
-  col2: "bool",
-  col3: "int",
-};
+const INITIAL_COLUMN_TYPES = new Map<ColumnId, string>([
+  ["col1" as ColumnId, "str"],
+  [2 as ColumnId, "bool"],
+  ["col3" as ColumnId, "int"],
+]);
 
 const Transforms = {
   COLUMN_CONVERSION: {
     type: "column_conversion",
-    column_id: "col1",
+    column_id: "col1" as ColumnId,
     data_type: "bool",
     errors: "ignore",
   } satisfies TransformType,
   RENAME_COLUMN: {
     type: "rename_column",
-    column_id: "col2",
-    new_column_id: "newCol2",
+    column_id: 2 as ColumnId,
+    new_column_id: "newCol2" as ColumnId,
   } satisfies TransformType,
   GROUP_BY: {
     type: "group_by",
-    column_ids: ["col1", "col3"],
+    column_ids: ["col1", "col3"] as ColumnId[],
     aggregation: "max",
     drop_na: true,
   } satisfies TransformType,
   GROUP_BY_CHAINED: {
     type: "group_by",
-    column_ids: ["newCol2"],
+    column_ids: ["newCol2"] as ColumnId[],
     aggregation: "max",
     drop_na: true,
   } satisfies TransformType,
   AGGREGATE: {
     type: "aggregate",
-    column_ids: ["col1"],
+    column_ids: ["col1"] as ColumnId[],
     aggregations: ["max"],
   } satisfies TransformType,
   AGGREGATE_CHAINED: {
     type: "aggregate",
-    column_ids: ["col1", "col3"],
+    column_ids: ["col1", "col3"] as ColumnId[],
     aggregations: ["max"],
   } satisfies TransformType,
   SELECT_COLUMNS: {
     type: "select_columns",
-    column_ids: ["col1", "col2"],
+    column_ids: ["col1", 2] as ColumnId[],
+  } satisfies TransformType,
+  EXPLODE_COLUMNS: {
+    type: "explode_columns",
+    column_ids: ["col1", 2] as ColumnId[],
+  } satisfies TransformType,
+  EXPAND_DICT: {
+    type: "expand_dict",
+    column_id: "col1" as ColumnId,
   } satisfies TransformType,
 };
 
@@ -56,10 +65,10 @@ describe("getUpdatedColumnTypes", () => {
       INITIAL_COLUMN_TYPES,
     );
     expect(result).toMatchInlineSnapshot(`
-      {
-        "col1": "bool",
-        "col2": "bool",
-        "col3": "int",
+      Map {
+        "col1" => "bool",
+        2 => "bool",
+        "col3" => "int",
       }
     `);
   });
@@ -70,10 +79,10 @@ describe("getUpdatedColumnTypes", () => {
       INITIAL_COLUMN_TYPES,
     );
     expect(result).toMatchInlineSnapshot(`
-      {
-        "col1": "str",
-        "col3": "int",
-        "newCol2": "bool",
+      Map {
+        "col1" => "str",
+        "col3" => "int",
+        "newCol2" => "bool",
       }
     `);
   });
@@ -84,8 +93,8 @@ describe("getUpdatedColumnTypes", () => {
       INITIAL_COLUMN_TYPES,
     );
     expect(result).toMatchInlineSnapshot(`
-      {
-        "col2": "bool",
+      Map {
+        2 => "bool",
       }
     `);
   });
@@ -96,8 +105,8 @@ describe("getUpdatedColumnTypes", () => {
       INITIAL_COLUMN_TYPES,
     );
     expect(result).toMatchInlineSnapshot(`
-      {
-        "col1": "str",
+      Map {
+        "col1" => "str",
       }
     `);
   });
@@ -108,9 +117,37 @@ describe("getUpdatedColumnTypes", () => {
       INITIAL_COLUMN_TYPES,
     );
     expect(result).toMatchInlineSnapshot(`
-      {
-        "col1": "str",
-        "col2": "bool",
+      Map {
+        "col1" => "str",
+        2 => "bool",
+      }
+    `);
+  });
+
+  it("should update column types for explode-columns conversion", () => {
+    const result = getUpdatedColumnTypes(
+      [Transforms.EXPLODE_COLUMNS],
+      INITIAL_COLUMN_TYPES,
+    );
+    expect(result).toMatchInlineSnapshot(`
+      Map {
+        "col1" => "str",
+        2 => "bool",
+        "col3" => "int",
+      }
+    `);
+  });
+
+  it("should update column types for expand-dict conversion", () => {
+    const result = getUpdatedColumnTypes(
+      [Transforms.EXPAND_DICT],
+      INITIAL_COLUMN_TYPES,
+    );
+    expect(result).toMatchInlineSnapshot(`
+      Map {
+        "col1" => "str",
+        2 => "bool",
+        "col3" => "int",
       }
     `);
   });
@@ -126,9 +163,9 @@ describe("getUpdatedColumnTypes", () => {
       INITIAL_COLUMN_TYPES,
     );
     expect(result).toMatchInlineSnapshot(`
-      {
-        "col1": "bool",
-        "col3": "int",
+      Map {
+        "col1" => "bool",
+        "col3" => "int",
       }
     `);
   });

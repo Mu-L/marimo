@@ -1,12 +1,13 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React, { PropsWithChildren, useEffect } from "react";
+import React, { type PropsWithChildren, useEffect, Suspense } from "react";
 import {
   PanelGroup,
   Panel,
   PanelResizeHandle,
-  ImperativePanelHandle,
+  type ImperativePanelHandle,
 } from "react-resizable-panels";
 import { Footer } from "./footer";
+import { Sidebar } from "./sidebar";
 import "./app-chrome.css";
 import { useChromeActions, useChromeState } from "../state";
 import { cn } from "@/utils/cn";
@@ -20,14 +21,24 @@ import { VariablePanel } from "../panels/variable-panel";
 import { LogsPanel } from "../panels/logs-panel";
 import { DocumentationPanel } from "../panels/documentation-panel";
 import { FileExplorerPanel } from "../panels/file-explorer-panel";
+import { SnippetsPanel } from "../panels/snippets-panel";
+import { ErrorBoundary } from "../../boundary/ErrorBoundary";
+import { DataSourcesPanel } from "../panels/datasources-panel";
+import { LazyMount } from "@/components/utils/lazy-mount";
+import { ScratchpadPanel } from "../panels/scratchpad-panel";
+import { IfCapability } from "@/core/config/if-capability";
+import { PackagesPanel } from "../panels/packages-panel";
+import { ChatPanel } from "@/components/chat/chat-panel";
+import { TooltipProvider } from "@radix-ui/react-tooltip";
+import { TracingPanel } from "../panels/tracing-panel";
+
+const LazyTerminal = React.lazy(() => import("@/components/terminal/terminal"));
 
 export const AppChrome: React.FC<PropsWithChildren> = ({ children }) => {
-  const { isOpen, selectedPanel } = useChromeState();
-  const { setIsOpen } = useChromeActions();
+  const { isSidebarOpen, isTerminalOpen, selectedPanel } = useChromeState();
+  const { setIsSidebarOpen, setIsTerminalOpen } = useChromeActions();
   const sidebarRef = React.useRef<ImperativePanelHandle>(null);
-  // We only support 'left' for now
-  // We may add support for a bottom bar, but currently it forces the app to remount
-  const panelLocation = "left";
+  const terminalRef = React.useRef<ImperativePanelHandle>(null);
 
   // sync sidebar
   useEffect(() => {
@@ -36,10 +47,10 @@ export const AppChrome: React.FC<PropsWithChildren> = ({ children }) => {
     }
 
     const isCurrentlyCollapsed = sidebarRef.current.isCollapsed();
-    if (isOpen && isCurrentlyCollapsed) {
+    if (isSidebarOpen && isCurrentlyCollapsed) {
       sidebarRef.current.expand();
     }
-    if (!isOpen && !isCurrentlyCollapsed) {
+    if (!isSidebarOpen && !isCurrentlyCollapsed) {
       sidebarRef.current.collapse();
     }
 
@@ -51,103 +62,192 @@ export const AppChrome: React.FC<PropsWithChildren> = ({ children }) => {
         window.dispatchEvent(new Event("resize"));
       });
     });
-  }, [isOpen]);
+  }, [isSidebarOpen]);
 
-  const appBody = (
-    <Panel id="app" key={`app-${panelLocation}`} className="relative h-full">
-      {children}
+  // sync terminal
+  useEffect(() => {
+    if (!terminalRef.current) {
+      return;
+    }
+
+    const isCurrentlyCollapsed = terminalRef.current.isCollapsed();
+    if (isTerminalOpen && isCurrentlyCollapsed) {
+      terminalRef.current.expand();
+    }
+    if (!isTerminalOpen && !isCurrentlyCollapsed) {
+      terminalRef.current.collapse();
+    }
+
+    // Dispatch a resize event so widgets know to resize
+    requestAnimationFrame(() => {
+      // HACK: Unfortunately, we have to do this twice to make sure it the
+      // panel is fully expanded before we dispatch the resize event
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+    });
+  }, [isTerminalOpen]);
+
+  const appBodyPanel = (
+    <Panel id="app" key="app" className="relative h-full">
+      <Suspense>{children}</Suspense>
     </Panel>
   );
 
-  const resizeHandle = (
+  const handleDragging = (isDragging: boolean) => {
+    if (!isDragging) {
+      // Once the user is done dragging, dispatch a resize event
+      window.dispatchEvent(new Event("resize"));
+    }
+  };
+
+  const helperResizeHandle = (
     <PanelResizeHandle
-      onDragging={(isDragging) => {
-        if (!isDragging) {
-          // Once the user is done dragging, dispatch a resize event
-          window.dispatchEvent(new Event("resize"));
-        }
-      }}
+      onDragging={handleDragging}
       className={cn(
         "border-border no-print z-10",
-        isOpen ? "resize-handle" : "resize-handle-collapsed",
-        panelLocation === "left" ? "vertical" : "horizontal",
+        isSidebarOpen ? "resize-handle" : "resize-handle-collapsed",
+        "vertical",
+      )}
+    />
+  );
+
+  const terminalResizeHandle = (
+    <PanelResizeHandle
+      onDragging={handleDragging}
+      className={cn(
+        "border-border no-print z-20",
+        isTerminalOpen ? "resize-handle" : "resize-handle-collapsed",
+        "horizontal",
       )}
     />
   );
 
   const helpPaneBody = (
-    <div className="flex flex-col h-full flex-1 overflow-hidden mr-[-4px]">
-      <div className="p-3 border-b flex justify-between items-center">
-        <div className="text-sm text-[var(--slate-11)] uppercase tracking-wide font-semibold flex-1">
-          {selectedPanel}
+    <ErrorBoundary>
+      <Suspense>
+        <div className="flex flex-col h-full flex-1 overflow-hidden mr-[-4px]">
+          <div className="p-3 border-b flex justify-between items-center">
+            <div className="text-sm text-[var(--slate-11)] uppercase tracking-wide font-semibold flex-1">
+              {selectedPanel}
+            </div>
+            <Button
+              data-testid="close-helper-pane"
+              className="m-0"
+              size="xs"
+              variant="text"
+              onClick={() => setIsSidebarOpen(false)}
+            >
+              <XIcon className="w-4 h-4" />
+            </Button>
+          </div>
+          <TooltipProvider>
+            {selectedPanel === "files" && <FileExplorerPanel />}
+            {selectedPanel === "errors" && <ErrorsPanel />}
+            {selectedPanel === "variables" && <VariablePanel />}
+            {selectedPanel === "dependencies" && <DependencyGraphPanel />}
+            {selectedPanel === "packages" && <PackagesPanel />}
+            {selectedPanel === "outline" && <OutlinePanel />}
+            {selectedPanel === "datasources" && <DataSourcesPanel />}
+            {selectedPanel === "documentation" && <DocumentationPanel />}
+            {selectedPanel === "snippets" && <SnippetsPanel />}
+            {selectedPanel === "scratchpad" && <ScratchpadPanel />}
+            {selectedPanel === "chat" && <ChatPanel />}
+            {selectedPanel === "logs" && <LogsPanel />}
+            {selectedPanel === "tracing" && <TracingPanel />}
+          </TooltipProvider>
         </div>
-        <Button
-          className="m-0"
-          size="xs"
-          variant="text"
-          onClick={() => setIsOpen(false)}
-        >
-          <XIcon className="w-4 h-4" />
-        </Button>
-      </div>
-      {selectedPanel === "files" && <FileExplorerPanel />}
-      {selectedPanel === "errors" && <ErrorsPanel />}
-      {selectedPanel === "variables" && <VariablePanel />}
-      {selectedPanel === "dependencies" && <DependencyGraphPanel />}
-      {selectedPanel === "outline" && <OutlinePanel />}
-      {selectedPanel === "documentation" && <DocumentationPanel />}
-      {selectedPanel === "logs" && <LogsPanel />}
-    </div>
+      </Suspense>
+    </ErrorBoundary>
   );
 
-  const helperPane = (
+  const helperPanel = (
     <Panel
       ref={sidebarRef}
       id="helper"
-      key={`helper-${panelLocation}`}
+      key={"helper"}
       collapsedSize={0}
       collapsible={true}
       className={cn(
-        "bg-white dark:bg-[var(--slate-1)] rounded-lg no-print shadow-mdNeutral",
-        isOpen && "m-4",
+        "dark:bg-[var(--slate-1)] no-print print:hidden hide-on-fullscreen",
+        isSidebarOpen && "border-r border-l border-[var(--slate-7)]",
       )}
       minSize={10}
       // We can't make the default size greater than 0, otherwise it will start open
       defaultSize={0}
-      maxSize={45}
+      maxSize={75}
       onResize={(size, prevSize) => {
         // This means it started closed and is opening for the first time
         if (prevSize === 0 && size === 10) {
           sidebarRef.current?.resize(30);
         }
       }}
-      onCollapse={() => setIsOpen(false)}
-      onExpand={() => setIsOpen(true)}
+      onCollapse={() => setIsSidebarOpen(false)}
+      onExpand={() => setIsSidebarOpen(true)}
     >
-      {panelLocation === "left" ? (
-        <span className="flex flex-row h-full">
-          {helpPaneBody} {resizeHandle}
-        </span>
-      ) : (
-        <span>
-          {resizeHandle} {helpPaneBody}
-        </span>
+      <span className="flex flex-row h-full">
+        {helpPaneBody} {helperResizeHandle}
+      </span>
+    </Panel>
+  );
+
+  const terminalPanel = (
+    <Panel
+      ref={terminalRef}
+      id="terminal"
+      key={"terminal"}
+      collapsedSize={0}
+      collapsible={true}
+      className={cn(
+        "dark:bg-[var(--slate-1)] no-print print:hidden hide-on-fullscreen",
+        isTerminalOpen && "border-[var(--slate-7)]",
       )}
+      minSize={10}
+      // We can't make the default size greater than 0, otherwise it will start open
+      defaultSize={0}
+      maxSize={75}
+      onResize={(size, prevSize) => {
+        // This means it started closed and is opening for the first time
+        if (prevSize === 0 && size === 10) {
+          terminalRef.current?.resize(30);
+        }
+      }}
+      onCollapse={() => setIsTerminalOpen(false)}
+      onExpand={() => setIsTerminalOpen(true)}
+    >
+      {terminalResizeHandle}
+      <LazyMount isOpen={isTerminalOpen}>
+        <LazyTerminal
+          visible={isTerminalOpen}
+          onClose={() => setIsTerminalOpen(false)}
+        />
+      </LazyMount>
     </Panel>
   );
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden absolute inset-0">
+    <div className="flex flex-col flex-1 overflow-hidden absolute inset-0 print:relative">
       <PanelGroup
-        key={panelLocation}
-        autoSaveId={`marimo:chrome`}
-        direction={panelLocation === "left" ? "horizontal" : "vertical"}
-        storage={createStorage(panelLocation)}
+        autoSaveId="marimo:chrome:v1:l2"
+        direction={"horizontal"}
+        storage={createStorage("left")}
       >
-        {panelLocation === "left" ? helperPane : appBody}
-        {panelLocation === "left" ? appBody : helperPane}
+        <TooltipProvider>
+          <Sidebar />
+        </TooltipProvider>
+        {helperPanel}
+        <Panel>
+          <PanelGroup autoSaveId="marimo:chrome:v1:l1" direction="vertical">
+            {appBodyPanel}
+            <IfCapability capability="terminal">{terminalPanel}</IfCapability>
+          </PanelGroup>
+        </Panel>
       </PanelGroup>
-      <Footer />
+      <ErrorBoundary>
+        <TooltipProvider>
+          <Footer />
+        </TooltipProvider>
+      </ErrorBoundary>
     </div>
   );
 };

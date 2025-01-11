@@ -6,6 +6,7 @@ from collections.abc import Awaitable
 import pytest
 
 from marimo._ast.app import App
+from marimo._ast.cell import CellConfig
 
 
 class TestCellRun:
@@ -21,7 +22,7 @@ class TestCellRun:
         assert cell.name == "f"
         assert not cell.refs
         assert cell.defs == set(["x"])
-        assert not cell._is_coroutine()
+        assert not cell._is_coroutine
         assert cell.run() == ("output", {"x": 4})
 
     @staticmethod
@@ -38,7 +39,7 @@ class TestCellRun:
         assert cell.name == "f"
         assert cell.refs == {"asyncio"}
         assert cell.defs == {"x"}
-        assert cell._is_coroutine()
+        assert cell._is_coroutine
 
         import asyncio
 
@@ -48,8 +49,7 @@ class TestCellRun:
 
     @staticmethod
     def test_unknown_ref_raises() -> None:
-        def f() -> None:
-            ...
+        def f() -> None: ...
 
         app = App()
         cell = app.cell(f)
@@ -118,10 +118,10 @@ class TestCellRun:
             y = x
             return (y,)
 
-        assert g._is_coroutine()
+        assert g._is_coroutine
         # h is a coroutine because it depends on the execution of an async
         # function
-        assert h._is_coroutine()
+        assert h._is_coroutine
 
     @staticmethod
     def test_async_chain() -> None:
@@ -143,16 +143,16 @@ class TestCellRun:
             z = y
             return (z,)
 
-        assert f._is_coroutine()
-        assert g._is_coroutine()
-        assert h._is_coroutine()
+        assert f._is_coroutine
+        assert g._is_coroutine
+        assert h._is_coroutine
 
     @staticmethod
     def test_empty_cell() -> None:
         app = App()
 
         @app.cell
-        def f():
+        def f() -> None:
             return
 
         assert f.run() == (None, {})
@@ -187,18 +187,66 @@ class TestCellRun:
         assert g.run(x=1) == (None, {"y": 2})
         assert h.run(y=2) == (3, {"z": 3})
 
+    @staticmethod
+    def test_unhashable_import() -> None:
+        from cell_data.named_cells import (
+            unhashable_defined,
+            unhashable_override_required,
+        )
+
+        assert unhashable_defined.name == "unhashable_defined"
+        assert (
+            unhashable_override_required.name == "unhashable_override_required"
+        )
+
+        assert unhashable_override_required.run(unhashable={0, 1}) == (
+            {0, 1},
+            {},
+        )
+        assert unhashable_defined.run() == (
+            {0, 1, 2},
+            {"unhashable": {0, 1, 2}},
+        )
+
+    @staticmethod
+    def test_direct_call() -> None:
+        from cell_data.named_cells import h, multiple, unhashable_defined
+
+        assert h(1) == 2
+        assert multiple() == (0, 1)
+        assert unhashable_defined() == {0, 1, 2}
+
 
 def help_smoke() -> None:
     app = App()
 
     @app.cell
-    async def f(x):
+    async def f(x) -> None:
         await x
         return
 
     @app.cell
-    def g():
+    def g() -> None:
         return
 
     assert "Async" in f._help().text
     assert "Async" not in g._help().text
+
+
+def test_cell_config_asdict_without_defaults():
+    config = CellConfig()
+    assert config.asdict_without_defaults() == {}
+
+    config = CellConfig(hide_code=True)
+    assert config.asdict_without_defaults() == {"hide_code": True}
+
+    config = CellConfig(hide_code=False)
+    assert config.asdict_without_defaults() == {}
+
+
+def test_is_different_from_default():
+    config = CellConfig(hide_code=True)
+    assert config.is_different_from_default()
+
+    config = CellConfig(hide_code=False)
+    assert not config.is_different_from_default()

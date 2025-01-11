@@ -1,4 +1,6 @@
 /* Copyright 2024 Marimo. All rights reserved. */
+"use no memo";
+
 import React, { memo, useMemo } from "react";
 import {
   TableHeader,
@@ -8,26 +10,29 @@ import {
   TableCell,
   Table,
 } from "../ui/table";
-import { Variable, Variables } from "@/core/variables/types";
-import { CellId } from "@/core/cells/ids";
+import type { Variable, Variables } from "@/core/variables/types";
+import type { CellId } from "@/core/cells/ids";
 import { CellLink } from "@/components/editor/links/cell-link";
 import { cn } from "@/utils/cn";
 import { SquareEqualIcon, WorkflowIcon } from "lucide-react";
-import { Badge } from "../ui/badge";
-import { toast } from "../ui/use-toast";
 import {
   useReactTable,
   getCoreRowModel,
   flexRender,
-  ColumnDef,
-  SortingState,
+  type ColumnDef,
+  type SortingState,
   getSortedRowModel,
-  ColumnSort,
+  type ColumnSort,
+  getFilteredRowModel,
 } from "@tanstack/react-table";
 import { DataTableColumnHeader } from "../data-table/column-header";
 import { sortBy } from "lodash-es";
-import { getCellEditorView } from "@/core/cells/cells";
-import { goToDefinition } from "@/core/codemirror/find-replace/search-highlight";
+import { getCellEditorView, useCellNames } from "@/core/cells/cells";
+import { goToVariableDefinition } from "@/core/codemirror/go-to-definition/commands";
+import { SearchInput } from "../ui/input";
+import { CellLinkList } from "../editor/links/cell-link-list";
+import { VariableName } from "./common";
+import { isInternalCellName } from "@/core/cells/names";
 
 interface Props {
   className?: string;
@@ -38,9 +43,14 @@ interface Props {
   variables: Variables;
 }
 
+interface ResolvedVariable extends Variable {
+  declaredByNames: string[];
+  usedByNames: string[];
+}
+
 /* Column Definitions */
 
-function columnDefOf<T>(columnDef: ColumnDef<Variable, T>) {
+function columnDefOf<T>(columnDef: ColumnDef<ResolvedVariable, T>) {
   return columnDef;
 }
 
@@ -61,21 +71,7 @@ const COLUMNS = [
     ),
     cell: ({ getValue }) => {
       const [name, declaredBy] = getValue();
-      return (
-        <div className="max-w-[130px]">
-          <Badge
-            title={name}
-            variant={declaredBy.length > 1 ? "destructive" : "outline"}
-            className="rounded-sm text-ellipsis block overflow-hidden max-w-fit cursor-pointer font-medium"
-            onClick={() => {
-              navigator.clipboard.writeText(name);
-              toast({ title: "Copied to clipboard" });
-            }}
-          >
-            {name}
-          </Badge>
-        </div>
-      );
+      return <VariableName name={name} declaredBy={declaredBy} />;
     },
   }),
   columnDefOf({
@@ -103,7 +99,7 @@ const COLUMNS = [
           </div>
           <div
             className="text-ellipsis overflow-hidden whitespace-nowrap"
-            title={value}
+            title={value ?? ""}
           >
             {value}
           </div>
@@ -113,7 +109,15 @@ const COLUMNS = [
   }),
   columnDefOf({
     id: ColumnIds.defs,
-    accessorFn: (v) => [v.declaredBy, v.usedBy, v.name] as const,
+    // Include declaredByNames and usedByNames for filtering
+    accessorFn: (v) =>
+      [
+        v.declaredBy,
+        v.usedBy,
+        v.name,
+        v.declaredByNames,
+        v.usedByNames,
+      ] as const,
     enableSorting: true,
     sortingFn: "basic",
     header: ({ column }) => (
@@ -134,7 +138,7 @@ const COLUMNS = [
       const highlightInCell = (cellId: CellId) => {
         const editorView = getCellEditorView(cellId);
         if (editorView) {
-          goToDefinition(editorView, name);
+          goToVariableDefinition(editorView, name);
         }
       };
 
@@ -149,6 +153,7 @@ const COLUMNS = [
               <CellLink
                 variant="focus"
                 cellId={declaredBy[0]}
+                skipScroll={true}
                 onClick={() => highlightInCell(declaredBy[0])}
               />
             ) : (
@@ -159,6 +164,7 @@ const COLUMNS = [
                       variant="focus"
                       key={cellId}
                       cellId={cellId}
+                      skipScroll={true}
                       className="whitespace-nowrap text-destructive"
                       onClick={() => highlightInCell(cellId)}
                     />
@@ -173,23 +179,12 @@ const COLUMNS = [
               <WorkflowIcon className="w-3.5 h-3.5 text-muted-foreground" />
             </span>
 
-            {usedBy.slice(0, 3).map((cellId, idx) => (
-              <span className="flex" key={cellId}>
-                <CellLink
-                  variant="focus"
-                  key={cellId}
-                  cellId={cellId}
-                  className="whitespace-nowrap"
-                  onClick={() => highlightInCell(cellId)}
-                />
-                {idx < usedBy.length - 1 && ", "}
-              </span>
-            ))}
-            {usedBy.length > 3 && (
-              <div className="whitespace-nowrap text-muted-foreground text-xs">
-                +{usedBy.length - 3} more
-              </div>
-            )}
+            <CellLinkList
+              maxCount={3}
+              cellIds={usedBy}
+              skipScroll={true}
+              onClick={highlightInCell}
+            />
           </div>
         </div>
       );
@@ -202,7 +197,7 @@ const COLUMNS = [
  * Defaults to the order they are defined in the notebook
  */
 function sortData(
-  variables: Variable[],
+  variables: ResolvedVariable[],
   sort: ColumnSort | undefined,
   cellIdToIndex: Map<CellId, number>,
 ) {
@@ -211,7 +206,7 @@ function sortData(
     sort = { id: ColumnIds.defs, desc: false };
   }
 
-  let sortedVariables: Variable[] = [];
+  let sortedVariables: ResolvedVariable[] = [];
   switch (sort.id) {
     case ColumnIds.name:
       sortedVariables = sortBy(variables, (v) => v.name);
@@ -232,50 +227,99 @@ function sortData(
 export const VariableTable: React.FC<Props> = memo(
   ({ className, cellIds, variables }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
+    const [globalFilter, setGlobalFilter] = React.useState("");
+    const cellNames = useCellNames();
+
+    const resolvedVariables: ResolvedVariable[] = useMemo(() => {
+      const getName = (id: CellId) => {
+        const name = cellNames[id];
+        if (isInternalCellName(name)) {
+          return `cell-${cellIds.indexOf(id)}`;
+        }
+        return name ?? `cell-${cellIds.indexOf(id)}`;
+      };
+
+      return Object.values(variables).map((variable) => {
+        return {
+          ...variable,
+          declaredByNames: variable.declaredBy.map(getName),
+          usedByNames: variable.usedBy.map(getName),
+        };
+      });
+    }, [variables, cellNames, cellIds]);
 
     const sortedVariables = useMemo(() => {
       const cellIdToIndex = new Map<CellId, number>();
       cellIds.forEach((id, index) => cellIdToIndex.set(id, index));
-      return sortData(Object.values(variables), sorting[0], cellIdToIndex);
-    }, [variables, sorting, cellIds]);
+      return sortData(resolvedVariables, sorting[0], cellIdToIndex);
+    }, [resolvedVariables, sorting, cellIds]);
 
     const table = useReactTable({
       data: sortedVariables,
       columns: COLUMNS,
       getCoreRowModel: getCoreRowModel(),
+      // filtering
+      onGlobalFilterChange: setGlobalFilter,
+      getFilteredRowModel: getFilteredRowModel(),
+      enableFilters: true,
+      enableGlobalFilter: true,
+      getColumnCanGlobalFilter(column) {
+        // Opt-out only
+        return column.columnDef.enableGlobalFilter ?? true;
+      },
+      globalFilterFn: "auto",
       // sorting
       manualSorting: true,
       onSortingChange: setSorting,
       getSortedRowModel: getSortedRowModel(),
-      state: { sorting },
+      state: {
+        sorting,
+        globalFilter,
+      },
     });
 
     return (
-      <Table className={cn("w-full overflow-hidden text-sm flex-1", className)}>
-        <TableHeader>
-          <TableRow className="whitespace-nowrap text-xs">
-            {table.getFlatHeaders().map((header) => (
-              <TableHead key={header.id}>
-                {flexRender(
-                  header.column.columnDef.header,
-                  header.getContext(),
-                )}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {table.getRowModel().rows.map((row) => (
-            <TableRow key={row.id} className="hover:bg-accent">
-              {row.getVisibleCells().map((cell) => (
-                <TableCell key={cell.id}>
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </TableCell>
+      <>
+        <SearchInput
+          className="w-full"
+          placeholder="Search"
+          value={globalFilter}
+          onChange={(e) => setGlobalFilter(e.target.value)}
+        />
+        <Table
+          className={cn(
+            "w-full text-sm flex-1 border-separate border-spacing-0",
+            className,
+          )}
+        >
+          <TableHeader>
+            <TableRow className="whitespace-nowrap text-xs">
+              {table.getFlatHeaders().map((header) => (
+                <TableHead
+                  key={header.id}
+                  className="sticky top-0 bg-background border-b"
+                >
+                  {flexRender(
+                    header.column.columnDef.header,
+                    header.getContext(),
+                  )}
+                </TableHead>
               ))}
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {table.getRowModel().rows.map((row) => (
+              <TableRow key={row.id} className="hover:bg-accent">
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell key={cell.id} className="border-b">
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </>
     );
   },
 );

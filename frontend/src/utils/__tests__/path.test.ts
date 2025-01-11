@@ -1,8 +1,15 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { describe, expect, it } from "vitest";
-import { FilePath, PathBuilder, Paths } from "../paths";
+import { type FilePath, PathBuilder, Paths } from "../paths";
 
 describe("Paths", () => {
+  it("isAbsolute", () => {
+    expect(Paths.isAbsolute("/")).toBe(true);
+    expect(Paths.isAbsolute("/user/docs/Letter.txt")).toBe(true);
+    expect(Paths.isAbsolute("C:\\user\\docs\\Letter.txt")).toBe(true);
+    expect(Paths.isAbsolute("user/docs/Letter.txt")).toBe(false);
+  });
+
   describe("dirname", () => {
     it("should return the directory path of a given path", () => {
       expect(Paths.dirname("/user/docs/Letter.txt")).toBe("/user/docs");
@@ -39,6 +46,38 @@ describe("Paths", () => {
 
     it("should handle windows-style paths", () => {
       expect(Paths.basename("C:\\user\\docs\\Letter.txt")).toBe("Letter.txt");
+    });
+  });
+
+  describe("rest", () => {
+    it("should return the suffix of a path", () => {
+      expect(Paths.rest("/user/docs/Letter.txt", "/user/docs")).toBe(
+        "Letter.txt",
+      );
+      expect(Paths.rest("/user/docs/Letter.txt", "/user/docs/")).toBe(
+        "Letter.txt",
+      );
+      expect(Paths.rest("/user/docs/Letter.txt", "/user")).toBe(
+        "docs/Letter.txt",
+      );
+      expect(Paths.rest("/user/docs/Letter.txt", "/user/")).toBe(
+        "docs/Letter.txt",
+      );
+    });
+
+    it("should handle windows-style paths", () => {
+      expect(Paths.rest("C:\\user\\docs\\Letter.txt", "C:\\user\\docs")).toBe(
+        "Letter.txt",
+      );
+      expect(Paths.rest("C:\\user\\docs\\Letter.txt", "C:\\user\\docs\\")).toBe(
+        "Letter.txt",
+      );
+      expect(Paths.rest("C:\\user\\docs\\Letter.txt", "C:\\user")).toBe(
+        "docs\\Letter.txt",
+      );
+      expect(Paths.rest("C:\\user\\docs\\Letter.txt", "C:\\user\\")).toBe(
+        "docs\\Letter.txt",
+      );
     });
   });
 });
@@ -118,6 +157,14 @@ describe("PathBuilder", () => {
     it("should return empty string if no dirname (root directory)", () => {
       const pathBuilder = new PathBuilder("/");
       expect(pathBuilder.dirname("file" as FilePath)).toBe("");
+    });
+  });
+
+  describe("extension", () => {
+    it("should return the extension of a file", () => {
+      expect(Paths.extension("file.txt")).toBe("txt");
+      expect(Paths.extension("file")).toBe("");
+      expect(Paths.extension("file.tar.gz")).toBe("gz");
     });
   });
 });

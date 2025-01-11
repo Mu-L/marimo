@@ -2,20 +2,50 @@
 import { z } from "zod";
 import { Logger } from "@/utils/Logger";
 import {
-  getRawMarimoAppConfig,
-  getRawMarimoUserConfig,
+  getMarimoAppConfig,
+  getMarimoConfigOverrides,
+  getMarimoUserConfig,
 } from "../dom/marimo-tag";
-import { ZodLocalStorage } from "@/utils/localStorage";
-import { isPyodide } from "../pyodide/utils";
+import type { MarimoConfig } from "../network/types";
+import { invariant } from "@/utils/invariant";
 
+// This has to be defined in the same file as the zod schema to satisfy zod
+export const PackageManagerNames = [
+  "pip",
+  "uv",
+  "rye",
+  "poetry",
+  "pixi",
+] as const;
+export type PackageManagerName = (typeof PackageManagerNames)[number];
+
+/**
+ * normal == compact, but normal is deprecated
+ */
+const VALID_APP_WIDTHS = [
+  "normal",
+  "compact",
+  "medium",
+  "full",
+  "columns",
+] as const;
 export const UserConfigSchema = z
   .object({
     completion: z
       .object({
         activate_on_typing: z.boolean().default(true),
-        copilot: z.boolean().default(false),
+        copilot: z
+          .union([z.boolean(), z.enum(["github", "codeium"])])
+          .default(false)
+          .transform((copilot) => {
+            if (copilot === true) {
+              return "github";
+            }
+            return copilot;
+          }),
+        codeium_api_key: z.string().nullish(),
       })
-      .default({ activate_on_typing: true, copilot: false }),
+      .default({}),
     save: z
       .object({
         autosave: z.enum(["off", "after_delay"]).default("after_delay"),
@@ -27,11 +57,7 @@ export const UserConfigSchema = z
           .default(1000),
         format_on_save: z.boolean().default(false),
       })
-      .default({
-        autosave: "after_delay",
-        autosave_delay: 1000,
-        format_on_save: false,
-      }),
+      .default({}),
     formatting: z
       .object({
         line_length: z
@@ -40,71 +66,122 @@ export const UserConfigSchema = z
           .default(79)
           .transform((n) => Math.min(n, 1000)),
       })
-      .default({ line_length: 79 }),
+      .default({}),
     keymap: z
       .object({
         preset: z.enum(["default", "vim"]).default("default"),
+        overrides: z.record(z.string()).default({}),
       })
-      .default({ preset: "default" }),
+      .default({}),
     runtime: z
       .object({
-        auto_instantiate: z.boolean(),
+        auto_instantiate: z.boolean().default(true),
+        on_cell_change: z.enum(["lazy", "autorun"]).default("autorun"),
+        auto_reload: z.enum(["off", "lazy", "autorun"]).default("off"),
       })
-      .default({ auto_instantiate: true }),
+      .default({}),
     display: z
       .object({
         theme: z.enum(["light", "dark", "system"]).default("light"),
         code_editor_font_size: z.number().nonnegative().default(14),
         cell_output: z.enum(["above", "below"]).default("above"),
+        dataframes: z.enum(["rich", "plain"]).default("rich"),
+        default_width: z
+          .enum(VALID_APP_WIDTHS)
+          .default("medium")
+          .transform((width) => {
+            if (width === "normal") {
+              return "compact";
+            }
+            return width;
+          }),
       })
-      .default({
-        theme: "light",
-        code_editor_font_size: 14,
-        cell_output: "above",
-      }),
+      .default({}),
+    package_management: z
+      .object({
+        manager: z.enum(PackageManagerNames).default("pip"),
+      })
+      .default({ manager: "pip" }),
+    ai: z
+      .object({
+        rules: z.string().default(""),
+        open_ai: z
+          .object({
+            api_key: z.string().optional(),
+            base_url: z.string().optional(),
+            model: z.string().optional(),
+          })
+          .optional(),
+        anthropic: z
+          .object({
+            api_key: z.string().optional(),
+          })
+          .optional(),
+        google: z
+          .object({
+            api_key: z.string().optional(),
+          })
+          .optional(),
+      })
+      .default({}),
     experimental: z
       .object({
-        ai: z.boolean().optional(),
+        markdown: z.boolean().optional(),
+        multi_column: z.boolean().optional(),
+        rtc: z.boolean().optional(),
+        // Add new experimental features here
       })
       // Pass through so that we don't remove any extra keys that the user has added.
       .passthrough()
       .default({}),
+    server: z.object({}).passthrough().default({}),
   })
   // Pass through so that we don't remove any extra keys that the user has added
   .passthrough()
   .default({
-    completion: { activate_on_typing: true, copilot: false },
-    save: {
-      autosave: "after_delay",
-      autosave_delay: 1000,
-      format_on_save: false,
-    },
-    formatting: { line_length: 79 },
-    keymap: { preset: "default" },
-    runtime: { auto_instantiate: true },
-    display: {
-      theme: "light",
-      code_editor_font_size: 14,
-      cell_output: "above",
-    },
+    completion: {},
+    save: {},
+    formatting: {},
+    keymap: {},
+    runtime: {},
+    display: {},
     experimental: {},
+    server: {},
+    ai: {
+      rules: "",
+      open_ai: {},
+    },
   });
-export type UserConfig = z.infer<typeof UserConfigSchema>;
+export type UserConfig = MarimoConfig;
 export type SaveConfig = UserConfig["save"];
 export type CompletionConfig = UserConfig["completion"];
 export type KeymapConfig = UserConfig["keymap"];
 
-export const APP_WIDTHS = ["normal", "medium", "full"] as const;
+export const AppTitleSchema = z.string().regex(/^[\w '-]*$/, {
+  message: "Invalid application title",
+});
 export const AppConfigSchema = z
   .object({
-    width: z.enum(APP_WIDTHS).default("normal"),
+    width: z
+      .enum(VALID_APP_WIDTHS)
+      .default("medium")
+      .transform((width) => {
+        if (width === "normal") {
+          return "compact";
+        }
+        return width;
+      }),
+    app_title: AppTitleSchema.nullish(),
+    css_file: z.string().nullish(),
+    html_head_file: z.string().nullish(),
+    auto_download: z.array(z.enum(["html", "markdown", "ipynb"])).default([]),
   })
-  .default({ width: "normal" });
+  .default({ width: "medium", auto_download: [] });
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 
 export function parseAppConfig() {
   try {
-    return AppConfigSchema.parse(JSON.parse(getRawMarimoAppConfig()));
+    return AppConfigSchema.parse(getMarimoAppConfig());
   } catch (error) {
     Logger.error(
       `Marimo got an unexpected value in the configuration file: ${error}`,
@@ -113,30 +190,40 @@ export function parseAppConfig() {
   }
 }
 
-export function parseUserConfig() {
+export function parseUserConfig(): UserConfig {
   try {
-    // For Pyodide, we use the local storage to store the user config.
-    if (isPyodide()) {
-      return UserConfigLocalStorage.get();
-    }
-
-    const parsed = UserConfigSchema.parse(JSON.parse(getRawMarimoUserConfig()));
+    const parsed = UserConfigSchema.parse(getMarimoUserConfig());
     for (const [key, value] of Object.entries(parsed.experimental)) {
       if (value === true) {
         Logger.log(`🧪 Experimental feature "${key}" is enabled.`);
       }
     }
-    return parsed;
+    return parsed as unknown as UserConfig;
   } catch (error) {
     Logger.error(
       `Marimo got an unexpected value in the configuration file: ${error}`,
     );
-    return UserConfigSchema.parse({});
+    return defaultUserConfig();
   }
 }
 
-export const UserConfigLocalStorage = new ZodLocalStorage<UserConfig>(
-  "marimo:user-config",
-  UserConfigSchema,
-  UserConfigSchema.parse({}),
-);
+export function parseConfigOverrides(): {} {
+  try {
+    const overrides = getMarimoConfigOverrides() as {};
+    invariant(
+      typeof overrides === "object",
+      "internal-error: marimo-config-overrides is not an object",
+    );
+    if (Object.keys(overrides).length > 0) {
+      Logger.log("🔧 Project configuration overrides:", overrides);
+    }
+    return overrides as {};
+  } catch (error) {
+    Logger.error(`Marimo got an unexpected configuration overrides: ${error}`);
+    return {};
+  }
+}
+
+export function defaultUserConfig(): UserConfig {
+  return UserConfigSchema.parse({}) as unknown as UserConfig;
+}

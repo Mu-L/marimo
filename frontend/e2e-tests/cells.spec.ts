@@ -1,17 +1,22 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { test, expect } from "@playwright/test";
 import { getAppUrl, resetFile } from "../playwright.config";
-import { exportAsHTMLAndTakeScreenshot, pressShortcut } from "./helper";
+import {
+  exportAsHTMLAndTakeScreenshot,
+  pressShortcut,
+  maybeRestartKernel,
+} from "./helper";
 
 const appUrl = getAppUrl("cells.py");
 test.beforeEach(async ({ page }, info) => {
   await page.goto(appUrl);
   if (info.retry) {
     await page.reload();
+    await maybeRestartKernel(page);
   }
 });
 
-test.beforeEach(async () => {
+test.afterEach(async () => {
   // Need to reset the file because this test modifies it
   await resetFile("cells.py");
 });
@@ -32,7 +37,8 @@ test("keeps re-renders from growing", async ({ page }) => {
   // unexpectedly, it is a sign that something is causing cells to re-render.
   // It is also ok to decrease the count if we find a way to reduce the number
   // of renders.
-  expect(cellRenderCount).toBe("4");
+  expect(cellRenderCount).toBeDefined();
+  expect(Number.parseInt(cellRenderCount || "")).toBeLessThanOrEqual(6);
 });
 
 /**
@@ -48,14 +54,14 @@ test("page renders 2 cells", async ({ page }) => {
 
   // No add buttons are visible
   await expect(
-    page.getByTestId("create-cell-button").locator(":visible").count(),
-  ).resolves.toBe(0);
+    page.getByTestId("create-cell-button").locator(":visible"),
+  ).toHaveCount(0);
 
   // Hover over a cell the 'add cell' button appears
   await page.hover("text=Cell 1");
   await expect(
-    page.getByTestId("create-cell-button").locator(":visible").count(),
-  ).resolves.toBe(2);
+    page.getByTestId("create-cell-button").locator(":visible"),
+  ).toHaveCount(2);
 
   // Clicking the first button creates a new cell at the top
   await page

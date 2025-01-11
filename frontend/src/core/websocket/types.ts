@@ -1,12 +1,12 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import ReconnectingWebSocket from "partysocket/ws";
+import type ReconnectingWebSocket from "partysocket/ws";
 
 export enum WebSocketState {
-  CONNECTING = 0,
-  OPEN = 1,
-  CLOSING = 2,
-  CLOSED = 3,
+  CONNECTING = "CONNECTING",
+  OPEN = "CONNECTED",
+  CLOSING = "CLOSING",
+  CLOSED = "CLOSED",
 }
 
 export enum WebSocketClosedReason {
@@ -23,6 +23,11 @@ export type ConnectionStatus =
        * Human-readable reason for closing the connection.
        */
       reason: string;
+      /**
+       * Whether the current session can be taken over by another session,
+       * since we only allow single-user editing.
+       */
+      canTakeover?: boolean;
     }
   | {
       state:

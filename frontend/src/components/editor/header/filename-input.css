@@ -1,0 +1,19 @@
+.missing-filename {
+  text-align: center;
+  @apply shadow-mdSolid shadow-stale;
+}
+
+.missing-filename:hover,
+.missing-filename:focus {
+  @apply shadow-lgSolid shadow-stale;
+}
+
+.filename {
+  text-align: center;
+  box-shadow: none;
+}
+
+.filename:hover,
+.filename:focus {
+  @apply border shadow-lgSolid;
+}

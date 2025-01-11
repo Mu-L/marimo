@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import pytest
 
 from marimo._runtime.requests import SetCellConfigRequest
-from marimo._utils.parse_dataclass import build_dataclass, parse_raw
+from marimo._utils.parse_dataclass import parse_raw
 
 
 @dataclass
@@ -53,6 +53,11 @@ def serialize(obj: Any) -> bytes:
 
 
 class TestParseRaw:
+    def test_invalid_message(self) -> None:
+        with pytest.raises(ValueError) as e:
+            parse_raw(b'"string"', ConfigOne)
+        assert "needs to be a dictionary" in str(e.value)
+
     def test_flat(self) -> None:
         @dataclass
         class Flat:
@@ -168,10 +173,17 @@ class TestParseRaw:
         parsed = parse_raw(serialize(nested), Nested)
         assert parsed == nested
 
-        # handle error
+        # should raise ("invalid" is not a dict and thus cannot be converted
+        # to a dataclass)
         with pytest.raises(ValueError) as e:
             parsed = parse_raw(serialize({"config": "invalid"}), Nested)
-            assert "invalid" in str(e.value)
+        assert "invalid" in str(e.value)
+
+        # should raise (value of key "config" is dataclass not included in
+        # Union)
+        nested = Nested(config=Config(True, True))  # type: ignore
+        with pytest.raises(ValueError) as e:
+            parsed = parse_raw(serialize(nested), Nested)
 
     def test_enums(self) -> None:
         @dataclass
@@ -187,7 +199,7 @@ class TestParseRaw:
         # handle error
         with pytest.raises(ValueError) as e:
             parsed = parse_raw(serialize({"config": "invalid"}), Nested)
-            assert "invalid" in str(e.value)
+        assert "invalid" in str(e.value)
 
     def test_discriminated_union(self) -> None:
         @dataclass
@@ -210,24 +222,32 @@ class TestParseRaw:
             parsed = parse_raw(
                 serialize({"config": {"invalid": True}}), Nested
             )
-            assert "invalid" in str(e.value)
+        assert "invalid" in str(e.value)
 
-    def test_build_optional(self) -> None:
-        @dataclass
-        class TestOptional:
-            x: Optional[str] = None
 
-        parsed = build_dataclass({}, TestOptional)
-        assert parsed == TestOptional(x=None)
+def test_build_optional() -> None:
+    @dataclass
+    class TestOptional:
+        x: Optional[str] = None
 
-        parsed = build_dataclass({"x": "hello"}, TestOptional)
-        assert parsed == TestOptional(x="hello")
+    parsed = parse_raw({}, TestOptional)
+    assert parsed == TestOptional(x=None)
+
+    parsed = parse_raw({"x": "hello"}, TestOptional)
+    assert parsed == TestOptional(x="hello")
 
 
 def test_build_empty_dataclass() -> None:
     @dataclass
-    class Empty:
-        ...
+    class Empty: ...
 
-    parsed = build_dataclass({}, Empty)
+    parsed = parse_raw({}, Empty)
+    assert parsed == Empty()
+
+
+def test_with_unknown_keys() -> None:
+    @dataclass
+    class Empty: ...
+
+    parsed = parse_raw({"key": "value"}, Empty, allow_unknown_keys=True)
     assert parsed == Empty()

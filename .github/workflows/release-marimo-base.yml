@@ -1,0 +1,53 @@
+name: Publish marimo-base release
+
+# release a new version of marimo-base on tag push
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch: {}
+
+env:
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: marimo
+  REGISTRY: ghcr.io
+  IMAGE_NAME: marimo-team/marimo
+
+jobs:
+  publish_release:
+    name: 📤 Publish release
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: 🛑 Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.12.1
+
+      - name: ⬇️ Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 🥚 Install Hatch
+        uses: pypa/hatch@install
+
+      - name: Adapt pyproject.toml to build marimo-base
+        run: ./scripts/modify_pyproject_for_marimo_base.sh
+
+      - name: 📦 Build marimo-base
+        run: hatch build --clean
+
+      - name: 📦 Validate wheel under 2mb
+        run: ./scripts/validate_base_wheel_size.sh
+
+      - name: 📤 Upload to PyPI
+        env:
+          HATCH_INDEX_USER: ${{ secrets.PYPI_USER }}
+          HATCH_INDEX_AUTH: ${{ secrets.PYPI_MARIMO_BASE_PASSWORD }}
+        run: hatch publish
+
+      - name: 📤 Upload to TestPyPI
+        env:
+          HATCH_INDEX_USER: ${{ secrets.TEST_PYPI_USER }}
+          HATCH_INDEX_AUTH: ${{ secrets.TEST_PYPI_MARIMO_BASE_PASSWORD }}
+        run: hatch publish --repo test

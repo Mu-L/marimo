@@ -1,13 +1,17 @@
 # Copyright 2024 Marimo. All rights reserved.
-"""Functions associated with a graph.
-"""
+"""Functions associated with a graph."""
+
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Callable, Generic, Type, TypeVar
+from typing import Any, Callable, Coroutine, Generic, Type, TypeVar
 
 from marimo._ast.cell import CellId_t
-from marimo._utils.parse_dataclass import build_dataclass
+from marimo._loggers import marimo_logger
+from marimo._utils.parse_dataclass import parse_raw
+
+LOGGER = marimo_logger()
+
 
 S = TypeVar("S")
 T = TypeVar("T")
@@ -24,7 +28,7 @@ class EmptyArgs:
 class Function(Generic[S, T]):
     name: str
     arg_cls: Type[S]
-    function: Callable[[S], T]
+    function: Callable[[S], T] | Callable[[S], Coroutine[Any, Any, T]]
     cell_id: CellId_t | None
 
     def __init__(
@@ -33,20 +37,31 @@ class Function(Generic[S, T]):
         arg_cls: Type[S],
         function: Callable[[S], T],
     ) -> None:
-        from marimo._runtime.context import get_context
+        from marimo._runtime.context import (
+            ContextNotInitializedError,
+            get_context,
+        )
 
         self.name = name
         self.arg_cls = arg_cls
         self.function = function
 
-        ctx = get_context()
-        if ctx is not None and ctx.kernel.execution_context is not None:
-            self.cell_id = ctx.kernel.execution_context.cell_id
+        try:
+            ctx = get_context()
+        except ContextNotInitializedError:
+            ctx = None
+
+        if ctx is not None and ctx.execution_context is not None:
+            self.cell_id = ctx.execution_context.cell_id
         else:
             self.cell_id = None
 
-    def __call__(self, args: dict[Any, Any]) -> T:
-        return self.function(build_dataclass(args, self.arg_cls))
+    def __call__(self, args: dict[Any, Any]) -> T | Coroutine[Any, Any, T]:
+        try:
+            return self.function(parse_raw(args, self.arg_cls))
+        except Exception as e:
+            LOGGER.error(f"Error calling function {self.name}: {e}")
+            raise e
 
 
 @dataclasses.dataclass

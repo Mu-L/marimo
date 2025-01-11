@@ -1,19 +1,27 @@
 # Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
+import base64
 import mimetypes
 import os
+import re
 import shutil
-from typing import List, Optional
+from typing import List, Literal, Optional, Union
 
 from marimo._server.files.file_system import FileSystem
 from marimo._server.models.files import FileDetailsResponse, FileInfo
 
 IGNORE_LIST = [
+    ".",
+    "..",
+    ".DS_Store",
     "__pycache__",
     "node_modules",
 ]
 
-IGNORE_PREFIXES = [
+DISALLOWED_NAMES = [
     ".",
+    "..",
 ]
 
 
@@ -23,31 +31,39 @@ class OSFileSystem(FileSystem):
 
     def list_files(self, path: str) -> List[FileInfo]:
         files: List[FileInfo] = []
-        with os.scandir(path) as it:
-            for entry in it:
-                if entry.name in IGNORE_LIST:
-                    continue
-                if any(
-                    entry.name.startswith(prefix) for prefix in IGNORE_PREFIXES
-                ):
-                    continue
+        folders: List[FileInfo] = []
+        try:
+            with os.scandir(path) as it:
+                for entry in it:
+                    if entry.name in IGNORE_LIST:
+                        continue
+                    try:
+                        is_directory = entry.is_dir()
+                        entry_stat = entry.stat()
+                    except OSError:
+                        # do not include files that fail to read
+                        # (e.g. recursive/broken symlinks)
+                        continue
 
-                is_directory = entry.is_dir()
-                info = FileInfo(
-                    id=entry.path,
-                    path=entry.path,
-                    name=entry.name,
-                    is_directory=is_directory,
-                    is_marimo_file=not is_directory
-                    and self._is_marimo_file(entry.path),
-                    last_modified_date=entry.stat().st_mtime,
-                )
-                files.append(info)
+                    info = FileInfo(
+                        id=entry.path,
+                        path=entry.path,
+                        name=entry.name,
+                        is_directory=is_directory,
+                        is_marimo_file=not is_directory
+                        and self._is_marimo_file(entry.path),
+                        last_modified=entry_stat.st_mtime,
+                    )
+                    if is_directory:
+                        folders.append(info)
+                    else:
+                        files.append(info)
+        except OSError:
+            pass
 
-        # Sort by directory first, then by name
-        files.sort(key=lambda f: (not f.is_directory, f.name))
-
-        return files
+        return sorted(folders, key=natural_sort_file) + sorted(
+            files, key=natural_sort_file
+        )
 
     def _get_file_info(self, path: str) -> FileInfo:
         stat = os.stat(path)
@@ -58,12 +74,18 @@ class OSFileSystem(FileSystem):
             name=os.path.basename(path),
             is_directory=is_directory,
             is_marimo_file=not is_directory and self._is_marimo_file(path),
-            last_modified_date=stat.st_mtime,
+            last_modified=stat.st_mtime,
         )
 
-    def get_details(self, path: str) -> FileDetailsResponse:
+    def get_details(
+        self, path: str, encoding: str | None = None
+    ) -> FileDetailsResponse:
         file_info = self._get_file_info(path)
-        contents = self.open_file(path) if not file_info.is_directory else None
+        contents = (
+            self.open_file(path, encoding=encoding)
+            if not file_info.is_directory
+            else None
+        )
         mime_type = mimetypes.guess_type(path)[0]
         return FileDetailsResponse(
             file=file_info, contents=contents, mime_type=mime_type
@@ -73,20 +95,32 @@ class OSFileSystem(FileSystem):
         if not path.endswith(".py"):
             return False
 
-        with open(path, "r") as file:
-            return "app = marimo.App(" in file.read()
+        with open(path, "rb") as file:
+            return b"app = marimo.App(" in file.read()
 
-    def open_file(self, path: str) -> str:
-        with open(path, "r") as file:
-            return file.read()
+    def open_file(self, path: str, encoding: str | None = None) -> str:
+        try:
+            with open(path, mode="r", encoding=encoding) as file:
+                return file.read()
+        except UnicodeDecodeError:
+            # If its a UnicodeDecodeError, try as bytes and convert to base64
+            with open(path, mode="rb") as file:
+                return base64.b64encode(file.read()).decode("utf-8")
 
     def create_file_or_directory(
         self,
         path: str,
-        file_type: str,
+        file_type: Literal["file", "directory"],
         name: str,
-        contents: Optional[str],
+        contents: Optional[bytes],
     ) -> FileInfo:
+        if name in DISALLOWED_NAMES:
+            raise ValueError(
+                f"Cannot create file or directory with name {name}"
+            )
+        if name.strip() == "":
+            raise ValueError("Cannot create file or directory with empty name")
+
         full_path = os.path.join(path, name)
         # If the file already exists, generate a new name
         if os.path.exists(full_path):
@@ -103,10 +137,12 @@ class OSFileSystem(FileSystem):
         if file_type == "directory":
             os.makedirs(full_path)
         else:
-            with open(full_path, "w") as file:
+            with open(full_path, "wb") as file:
                 if contents:
                     file.write(contents)
-        return self.get_details(full_path).file
+        # encoding latin-1 to get an invertible representation of the
+        # bytes as a string ...
+        return self.get_details(full_path, encoding="latin-1").file
 
     def delete_file_or_directory(self, path: str) -> bool:
         if os.path.isdir(path):
@@ -115,6 +151,30 @@ class OSFileSystem(FileSystem):
             os.remove(path)
         return True
 
-    def update_file_or_directory(self, path: str, new_path: str) -> FileInfo:
+    def move_file_or_directory(self, path: str, new_path: str) -> FileInfo:
+        file_name = os.path.basename(new_path)
+        # Disallow renaming to . or ..
+        if file_name in DISALLOWED_NAMES:
+            raise ValueError(f"Cannot rename to {new_path}")
+
         shutil.move(path, new_path)
         return self.get_details(new_path).file
+
+    def update_file(self, path: str, contents: str) -> FileInfo:
+        with open(path, "w") as file:
+            file.write(contents)
+        return self.get_details(path).file
+
+
+def natural_sort_file(file: FileInfo) -> List[Union[int, str]]:
+    return natural_sort(file.name)
+
+
+def natural_sort(filename: str) -> List[Union[int, str]]:
+    def convert(text: str) -> Union[int, str]:
+        return int(text) if text.isdigit() else text.lower()
+
+    def alphanum_key(key: str) -> List[Union[int, str]]:
+        return [convert(c) for c in re.split("([0-9]+)", key)]
+
+    return alphanum_key(filename)
