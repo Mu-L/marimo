@@ -1,13 +1,13 @@
 import type { Preview, Decorator } from "@storybook/react";
 import "../src/css/index.css";
-import "../src/css/App.css";
+import "../src/css/app/App.css";
 import "./sb.css";
 import "tailwindcss/tailwind.css";
 import React, { useEffect } from "react";
 import { cn } from "../src/utils/cn";
 import { TooltipProvider } from "../src/components/ui/tooltip";
 import { Toaster } from "../src/components/ui/toaster";
-import { TailwindIndicator } from "../src/components/ui/tailwind-indicator";
+import { TailwindIndicator } from "../src/components/debug/indicator";
 
 const withTheme: Decorator = (Story, context) => {
   const theme = context.globals.theme || "light";

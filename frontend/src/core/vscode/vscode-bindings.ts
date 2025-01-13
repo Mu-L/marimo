@@ -1,7 +1,9 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
 import { Logger } from "@/utils/Logger";
-import { isPyodide } from "../pyodide/utils";
+import { isWasm } from "../wasm/utils";
+import { isPlatformMac } from "../hotkeys/shortcuts";
+import { KnownQueryParams } from "../constants";
 
 export const isEmbedded =
   // eslint-disable-next-line ssr-friendly/no-dom-globals-in-module-scope
@@ -11,9 +13,17 @@ export const isEmbedded =
 // we have to dispatch keyboard events in the parent window.
 // See https://github.com/microsoft/vscode/issues/65452#issuecomment-586036474
 export function maybeRegisterVSCodeBindings() {
-  if (!isEmbedded || isPyodide()) {
+  const isVscode = new URLSearchParams(window.location.search).has(
+    KnownQueryParams.vscode,
+  );
+  if (!isVscode) {
     return;
   }
+
+  if (!isEmbedded || isWasm()) {
+    return;
+  }
+
   Logger.log("Registering VS Code bindings");
   registerKeyboard();
   registerCopyPaste();
@@ -32,8 +42,11 @@ function registerCopyPaste() {
 
   window.addEventListener("cut", () => {
     const selection = window.getSelection()?.toString() ?? "";
-    // clear
-    document.execCommand("insertText", false, "");
+    // Only run this on mac
+    if (isPlatformMac()) {
+      // clear
+      document.execCommand("insertText", false, "");
+    }
     sendToPanelManager({
       command: "cut",
       text: selection,
@@ -44,7 +57,9 @@ function registerCopyPaste() {
     const message = event.data;
     switch (message.command) {
       case "paste":
-        document.execCommand("insertText", false, message.text);
+        if (isPlatformMac()) {
+          document.execCommand("insertText", false, message.text);
+        }
         return;
     }
   });
@@ -65,7 +80,9 @@ function registerKeyboard() {
     if ((event.ctrlKey || event.metaKey) && event.key === "x") {
       const selection = window.getSelection()?.toString() ?? "";
       // clear
-      document.execCommand("insertText", false, "");
+      if (isPlatformMac()) {
+        document.execCommand("insertText", false, "");
+      }
       sendToPanelManager({
         command: "cut",
         text: selection,

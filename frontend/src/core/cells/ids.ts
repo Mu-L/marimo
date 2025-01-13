@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-redeclare */
 
 import { invariant } from "@/utils/invariant";
-import { TypedString } from "../../utils/typed";
+import type { TypedString } from "../../utils/typed";
 
 const lowercase = "abcdefghijklmnopqrstuvwxyz";
 const uppercase = lowercase.toUpperCase();
@@ -61,5 +61,12 @@ export const UIElementId = {
     const id = UIElementId.parse(element);
     invariant(id, "<marimo-ui-element/> missing object-id attribute");
     return id;
+  },
+};
+
+export type CellOutputId = `output-${CellId}`;
+export const CellOutputId = {
+  create(cellId: CellId): CellOutputId {
+    return `output-${cellId}`;
   },
 };

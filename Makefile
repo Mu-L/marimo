@@ -21,7 +21,7 @@ marimo/_lsp: $(shell find lsp)
 .PHONY: py
 # editable python install; only need to run once
 py:
-	pip install -e .[dev]
+	pip install -e ".[dev]"
 
 .PHONY: check
 # run all checks
@@ -29,11 +29,11 @@ check: fe-check py-check
 
 .PHONY: check-test
 # run all checks and tests
-check-test: check fe-test e2e py-test
+check-test: check fe-test py-test e2e
 
 .PHONY: test
 # run all checks and tests
-test: fe-test e2e py-test
+test: fe-test py-test e2e
 
 .PHONY: fe-check
 # check frontend
@@ -47,25 +47,36 @@ fe-test:
 .PHONY: e2e
 # test end-to-end
 e2e:
-	cd frontend; npx playwright install; npx playwright test
+	cd frontend; pnpm playwright install; pnpm playwright test
 
 .PHONY: fe-lint
 fe-lint:
-	cd frontend; pnpm lint:fix
+	cd frontend/src && typos && cd - && cd frontend && pnpm lint
 
 .PHONY: fe-typecheck
 fe-typecheck:
 	cd frontend; pnpm turbo typecheck
 
+.PHONY: fe-codegen
+fe-codegen:
+	cd openapi; pnpm install; pnpm codegen
+
 .PHONY: py-check
-# check python
+# typecheck, lint, format python
 py-check:
-	./scripts/pyfix.sh
+	./scripts/pycheck.sh
 
 .PHONY: py-test
 # test python
 py-test:
-	pytest
+	cd marimo && typos && cd - && hatch run +py=3.12 test-optional:test
+
+.PHONY: py-snapshots
+# update html snapshots
+py-snapshots:
+	hatch run +py=3.12 test:test \
+		tests/_server/templates/test_templates.py \
+		tests/_server/api/endpoints/test_export.py
 
 .PHONY: install-all
 # install everything; takes a long time due to editable install
@@ -74,7 +85,7 @@ install-all: fe py
 .PHONY: wheel
 # build wheel
 wheel:
-	python -m build
+	hatch build
 
 .PHONY: storybook
 storybook:
@@ -85,14 +96,13 @@ storybook:
 # use make ARGS="-a" docs to force docs to rebuild, useful when
 # modifying static files / assets
 docs:
-	sphinx-build $(ARGS) docs/ docs/_build
+	hatch run docs:build $(ARGS)
 
-.PHONY: docs-auto
-# autobuild docs
-docs-auto:
-	sphinx-autobuild $(ARGS) docs/ docs/_build
+.PHONY: docs-serve
+docs-serve:
+	hatch run docs:serve $(ARGS)
 
 .PHONY: docs-clean
 # remove built docs
 docs-clean:
-	cd docs && make clean
+	hatch run docs:clean

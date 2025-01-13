@@ -3,7 +3,7 @@ import { useId } from "react";
 import { z } from "zod";
 
 import { Switch } from "@/components/ui/switch";
-import { IPlugin, IPluginProps } from "@/plugins/types";
+import type { IPlugin, IPluginProps } from "@/plugins/types";
 import { Labeled } from "./common/labeled";
 
 export class SwitchPlugin
@@ -31,6 +31,7 @@ const SwitchComponent = ({
   return (
     <Labeled label={data.label} align="right" id={id} labelClassName="ml-1">
       <Switch
+        data-testid="marimo-plugin-switch"
         checked={value}
         onCheckedChange={setValue}
         id={id}

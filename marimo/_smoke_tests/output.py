@@ -1,7 +1,8 @@
 # Copyright 2024 Marimo. All rights reserved.
+
 import marimo
 
-__generated_with = "0.1.19"
+__generated_with = "0.8.14"
 app = marimo.App()
 
 
@@ -22,18 +23,18 @@ def __(mo, time):
     def loop_replace():
         for i in range(5):
             mo.output.replace(mo.md(f"Loading {i}/5"))
-            time.sleep(.1)
+            time.sleep(.01)
 
     def loop_append():
         for i in range(5):
             mo.output.append(mo.md(f"Loading {i}/5"))
-            time.sleep(.1)
+            time.sleep(.01)
     return loop_append, loop_replace
 
 
 @app.cell
 def __(mo):
-    mo.md("### Replace")
+    mo.md("""### Replace""")
     return
 
 
@@ -53,7 +54,7 @@ def __(loop_replace, mo):
 
 @app.cell
 def __(mo):
-    mo.md("### Append")
+    mo.md("""### Append""")
     return
 
 
@@ -73,7 +74,7 @@ def __(loop_append, mo):
 
 @app.cell
 def __(mo):
-    mo.md("### Clear")
+    mo.md("""### Clear""")
     return
 
 
@@ -95,7 +96,7 @@ def __(loop_append, mo):
 
 @app.cell
 def __(mo):
-    mo.md("### Sleep (stale)")
+    mo.md("""### Sleep (stale)""")
     return
 
 
@@ -103,6 +104,13 @@ def __(mo):
 def __(time):
     time.sleep(2)
     "hello"
+    return
+
+
+@app.cell
+def __(mo):
+    mo.output.append(mo.md("To be replaced."))
+    mo.output.replace_at_index(mo.md("Replaced at index"), 0)
     return
 
 

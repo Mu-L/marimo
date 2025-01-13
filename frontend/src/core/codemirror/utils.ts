@@ -1,6 +1,6 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import type { EditorState } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 import { getCM } from "@replit/codemirror-vim";
 
 export function isAtStartOfEditor(ev: { state: EditorState }) {
@@ -25,6 +25,18 @@ export function isAtEndOfEditor(ev: { state: EditorState }, isVim = false) {
   return main.from === docLength && main.to === docLength;
 }
 
+export function moveToEndOfEditor(ev: EditorView | undefined) {
+  if (!ev) {
+    return;
+  }
+  ev.dispatch({
+    selection: {
+      anchor: ev.state.doc.length,
+      head: ev.state.doc.length,
+    },
+  });
+}
+
 export function isInVimNormalMode(ev: EditorView): boolean {
   const vimState = getCM(ev)?.state.vim;
   if (!vimState) {
@@ -35,4 +47,16 @@ export function isInVimNormalMode(ev: EditorView): boolean {
     return true;
   }
   return vimState.mode === "normal";
+}
+
+export function selectAllText(ev: EditorView | undefined) {
+  if (!ev) {
+    return;
+  }
+  ev.dispatch({
+    selection: {
+      anchor: 0,
+      head: ev.state.doc.length,
+    },
+  });
 }

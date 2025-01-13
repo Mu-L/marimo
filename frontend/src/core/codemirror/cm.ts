@@ -3,6 +3,9 @@ import {
   acceptCompletion,
   closeBrackets,
   closeBracketsKeymap,
+  startCompletion,
+  moveCompletionSelection,
+  completionStatus,
 } from "@codemirror/autocomplete";
 import {
   history,
@@ -19,7 +22,6 @@ import {
   indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language";
-import { lintKeymap } from "@codemirror/lint";
 import {
   drawSelection,
   dropCursor,
@@ -33,71 +35,91 @@ import {
   EditorView,
 } from "@codemirror/view";
 
-import { EditorState, Extension, Prec } from "@codemirror/state";
+import { EditorState, type Extension, Prec } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 
-import { CompletionConfig, KeymapConfig } from "../config/config-schema";
-import { Theme } from "../../theme/useTheme";
+import type { CompletionConfig, KeymapConfig } from "../config/config-schema";
+import type { Theme } from "../../theme/useTheme";
 
 import { findReplaceBundle } from "./find-replace/extension";
 import {
-  CodeCallbacks,
-  MovementCallbacks,
+  type CodeCallbacks,
+  type MovementCallbacks,
   cellCodeEditingBundle,
   cellMovementBundle,
 } from "./cells/extensions";
-import { CellId } from "../cells/ids";
+import type { CellId } from "../cells/ids";
 import { keymapBundle } from "./keymaps/keymaps";
-import {
-  scrollActiveLineIntoView,
-  smartPlaceholderExtension,
-} from "./extensions";
+import { scrollActiveLineIntoView } from "./extensions";
 import { copilotBundle } from "./copilot/extension";
 import { hintTooltip } from "./completion/hints";
 import { adaptiveLanguageConfiguration } from "./language/extension";
 import { historyCompartment } from "./editing/extensions";
+import { goToDefinitionBundle } from "./go-to-definition/extension";
+import type { HotkeyProvider } from "../hotkeys/hotkeys";
+import { lightTheme } from "./theme/light";
+import { dndBundle } from "./misc/dnd";
+import { jupyterHelpExtension } from "./compat/jupyter";
+import { pasteBundle } from "./misc/paste";
 
 export interface CodeMirrorSetupOpts {
   cellId: CellId;
   showPlaceholder: boolean;
+  enableAI: boolean;
   cellMovementCallbacks: MovementCallbacks;
   cellCodeCallbacks: CodeCallbacks;
   completionConfig: CompletionConfig;
   keymapConfig: KeymapConfig;
   theme: Theme;
+  hotkeys: HotkeyProvider;
 }
 
 /**
  * Setup CodeMirror for a cell
  */
-export const setupCodeMirror = ({
-  cellId,
-  showPlaceholder,
-  cellMovementCallbacks,
-  cellCodeCallbacks,
-  completionConfig,
-  keymapConfig,
-  theme,
-}: CodeMirrorSetupOpts): Extension[] => {
+export const setupCodeMirror = (opts: CodeMirrorSetupOpts): Extension[] => {
+  const {
+    cellId,
+    cellMovementCallbacks,
+    cellCodeCallbacks,
+    keymapConfig,
+    hotkeys,
+  } = opts;
+
   return [
     // Editor keymaps (vim or defaults) based on user config
     keymapBundle(keymapConfig, cellMovementCallbacks),
+    dndBundle(),
+    pasteBundle(),
+    jupyterHelpExtension(),
     // Cell editing
-    cellMovementBundle(cellId, cellMovementCallbacks),
-    cellCodeEditingBundle(cellId, cellCodeCallbacks),
+    cellMovementBundle(cellId, cellMovementCallbacks, hotkeys),
+    cellCodeEditingBundle(cellId, cellCodeCallbacks, hotkeys),
     // Comes last so that it can be overridden
-    basicBundle(completionConfig, theme),
-    showPlaceholder
-      ? Prec.highest(smartPlaceholderExtension("import marimo as mo"))
-      : [],
+    basicBundle(opts),
+    // Underline cmd+clickable placeholder
+    goToDefinitionBundle(),
   ];
 };
 
+const startCompletionAtEndOfLine = (cm: EditorView): boolean => {
+  const { from, to } = cm.state.selection.main;
+  if (from !== to) {
+    // this is a selection
+    return false;
+  }
+
+  const line = cm.state.doc.lineAt(to);
+  return line.text.slice(0, to - line.from).trim() === ""
+    ? // in the whitespace prefix of a line
+      false
+    : startCompletion(cm);
+};
+
 // Based on codemirror's basicSetup extension
-export const basicBundle = (
-  completionConfig: CompletionConfig,
-  theme: Theme,
-): Extension[] => {
+export const basicBundle = (opts: CodeMirrorSetupOpts): Extension[] => {
+  const { theme, hotkeys, completionConfig } = opts;
+
   return [
     ///// View
     EditorView.lineWrapping,
@@ -117,10 +139,10 @@ export const basicBundle = (
       parent: document.querySelector<HTMLElement>("#App") ?? undefined,
     }),
     scrollActiveLineIntoView(),
-    theme === "dark" ? oneDark : [],
+    theme === "dark" ? oneDark : lightTheme,
 
     hintTooltip(),
-    copilotBundle(),
+    copilotBundle(completionConfig),
     foldGutter(),
     closeBrackets(),
     // to avoid clash with charDeleteBackward keymap
@@ -129,20 +151,48 @@ export const basicBundle = (
     indentOnInput(),
     indentUnit.of("    "),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-    keymap.of([...foldKeymap, ...lintKeymap]),
+    keymap.of(foldKeymap),
 
     ///// Language Support
-    adaptiveLanguageConfiguration(completionConfig),
+    adaptiveLanguageConfiguration(opts),
 
     ///// Editing
     historyCompartment.of(history()),
     EditorState.allowMultipleSelections.of(true),
-    findReplaceBundle(),
+    findReplaceBundle(hotkeys),
     keymap.of([
       {
         key: "Tab",
         run: (cm) => {
-          return acceptCompletion(cm) || indentMore(cm);
+          return (
+            acceptCompletion(cm) ||
+            startCompletionAtEndOfLine(cm) ||
+            indentMore(cm)
+          );
+        },
+        preventDefault: true,
+      },
+      {
+        key: "Alt-j",
+        mac: "Ctrl-j",
+        run: (cm) => {
+          if (completionStatus(cm.state) !== null) {
+            moveCompletionSelection(true)(cm);
+            return true;
+          }
+          return false;
+        },
+        preventDefault: true,
+      },
+      {
+        key: "Alt-k",
+        mac: "Ctrl-k",
+        run: (cm) => {
+          if (completionStatus(cm.state) !== null) {
+            moveCompletionSelection(false)(cm);
+            return true;
+          }
+          return false;
         },
         preventDefault: true,
       },

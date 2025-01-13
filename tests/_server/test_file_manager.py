@@ -1,15 +1,19 @@
+from __future__ import annotations
+
 import os
+import sys
 import tempfile
 from typing import Generator
 
 import pytest
 
+from marimo import __version__
 from marimo._ast.cell import CellConfig
 from marimo._server.api.status import HTTPException, HTTPStatus
 from marimo._server.file_manager import AppFileManager
-from marimo._server.models.models import SaveRequest
+from marimo._server.models.models import SaveNotebookRequest
 
-save_request = SaveRequest(
+save_request = SaveNotebookRequest(
     cell_ids=["1"],
     filename="save_existing.py",
     codes=["import marimo as mo"],
@@ -63,9 +67,9 @@ def test_rename_to_existing_filename(app_file_manager: AppFileManager) -> None:
     with open(existing_filename, "w") as f:
         f.write("This is a test file.")
     try:
-        with pytest.raises(HTTPException) as e:
+        with pytest.raises(HTTPException) as e:  # noqa: PT012
             app_file_manager.rename(existing_filename)
-            assert e.value == HTTPStatus.BAD_REQUEST
+        assert e.value.status_code == HTTPStatus.BAD_REQUEST
     finally:
         os.remove(existing_filename)
 
@@ -86,9 +90,9 @@ def test_successful_rename(app_file_manager: AppFileManager) -> None:
 
 def test_rename_exception(app_file_manager: AppFileManager) -> None:
     new_filename = "/invalid/path/new_filename.py"
-    with pytest.raises(HTTPException) as e:
+    with pytest.raises(HTTPException) as e:  # noqa: PT012
         app_file_manager.rename(new_filename)
-        assert e.value.status_code == HTTPStatus.SERVER_ERROR
+    assert e.value.status_code == HTTPStatus.SERVER_ERROR
 
 
 def test_rename_create_new_file(app_file_manager: AppFileManager) -> None:
@@ -103,6 +107,42 @@ def test_rename_create_new_file(app_file_manager: AppFileManager) -> None:
         os.remove(new_filename)
 
 
+def test_rename_create_new_directory_file(
+    app_file_manager: AppFileManager,
+) -> None:
+    app_file_manager.filename = None
+    new_directory = "new_directory"
+    new_filename = os.path.join(new_directory, "new_file.py")
+    if os.path.exists(new_filename):
+        os.remove(new_filename)
+    if os.path.exists(new_directory):
+        os.rmdir(new_directory)
+    try:
+        app_file_manager.rename(new_filename)
+        assert os.path.exists(new_filename)
+    finally:
+        os.remove(new_filename)
+        os.rmdir(new_directory)
+
+
+def test_rename_different_filetype(app_file_manager: AppFileManager) -> None:
+    initial_filename = app_file_manager.filename
+    assert initial_filename
+    assert initial_filename.endswith(".py")
+    with open(initial_filename, "r") as f:
+        contents = f.read()
+        assert "app = marimo.App()" in contents
+        assert "marimo-version" not in contents
+    app_file_manager.rename(initial_filename[:-3] + ".md")
+    next_filename = app_file_manager.filename
+    assert next_filename
+    assert next_filename.endswith(".md")
+    with open(next_filename, "r") as f:
+        contents = f.read()
+        assert "marimo-version" in contents
+        assert "app = marimo.App()" not in contents
+
+
 def test_save_app_config_valid(app_file_manager: AppFileManager) -> None:
     app_file_manager.filename = "app_config.py"
     try:
@@ -114,11 +154,15 @@ def test_save_app_config_valid(app_file_manager: AppFileManager) -> None:
         os.remove(app_file_manager.filename)
 
 
+@pytest.mark.skipif(
+    condition=sys.platform == "win32",
+    reason="filename is not invalid on Windows",
+)
 def test_save_app_config_exception(app_file_manager: AppFileManager) -> None:
     app_file_manager.filename = "/invalid/path/app_config.py"
-    with pytest.raises(HTTPException) as e:
+    with pytest.raises(HTTPException) as e:  # noqa: PT012
         app_file_manager.save_app_config({})
-        assert e.value.status_code == HTTPStatus.SERVER_ERROR
+    assert e.value.status_code == HTTPStatus.SERVER_ERROR
 
 
 def test_save_filename_change_not_allowed(
@@ -126,9 +170,9 @@ def test_save_filename_change_not_allowed(
 ) -> None:
     app_file_manager.filename = "original.py"
     save_request.filename = "new.py"
-    with pytest.raises(HTTPException) as e:
+    with pytest.raises(HTTPException) as e:  # noqa: PT012
         app_file_manager.save(save_request)
-        assert e.value.status_code == HTTPStatus.BAD_REQUEST
+    assert e.value.status_code == HTTPStatus.BAD_REQUEST
 
 
 def test_save_existing_filename(app_file_manager: AppFileManager) -> None:
@@ -137,9 +181,9 @@ def test_save_existing_filename(app_file_manager: AppFileManager) -> None:
         f.write("This is a test file.")
     save_request.filename = existing_filename
     try:
-        with pytest.raises(HTTPException) as e:
+        with pytest.raises(HTTPException) as e:  # noqa: PT012
             app_file_manager.save(save_request)
-            assert e.value.status_code == HTTPStatus.BAD_REQUEST
+        assert e.value.status_code == HTTPStatus.BAD_REQUEST
     finally:
         os.remove(existing_filename)
 
@@ -155,10 +199,9 @@ def test_save_successful(app_file_manager: AppFileManager) -> None:
 
 def test_save_cannot_rename(app_file_manager: AppFileManager) -> None:
     save_request.filename = "/invalid/path/save_exception.py"
-    try:
+    with pytest.raises(HTTPException) as e:
         app_file_manager.save(save_request)
-    except HTTPException as e:
-        assert e.status_code == HTTPStatus.BAD_REQUEST
+    assert e.value.status_code == HTTPStatus.BAD_REQUEST
 
 
 def test_read_valid_filename(app_file_manager: AppFileManager) -> None:
@@ -177,4 +220,32 @@ def test_read_unnamed_notebook(app_file_manager: AppFileManager) -> None:
     app_file_manager.filename = None
     with pytest.raises(HTTPException) as e:
         app_file_manager.read_file()
-        assert e.value.status_code == HTTPStatus.BAD_REQUEST
+    assert e.value.status_code == HTTPStatus.BAD_REQUEST
+
+
+def test_read_layout(app_file_manager: AppFileManager) -> None:
+    layout = app_file_manager.read_layout_config()
+    assert layout is None
+
+
+def test_to_code(app_file_manager: AppFileManager) -> None:
+    code = app_file_manager.to_code()
+    assert code == "\n".join(
+        [
+            "import marimo",
+            "",
+            f'__generated_with = "{__version__}"',
+            "app = marimo.App()",
+            "",
+            "",
+            "@app.cell",
+            "def _():",
+            "    import marimo as mo",
+            "    return (mo,)",
+            "",
+            "",
+            'if __name__ == "__main__":',
+            "    app.run()",
+            "",
+        ]
+    )

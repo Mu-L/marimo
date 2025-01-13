@@ -13,18 +13,40 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { downloadBlob } from "@/utils/download";
+import { useEvent } from "@/hooks/useEvent";
+import { getNotebook } from "@/core/cells/cells";
+import { notebookCells } from "@/core/cells/utils";
+import { useFilename } from "@/core/saving/filename";
 
 const RecoveryModal = (props: {
   proposedName: string;
-  getCellsAsJSON: () => string;
   closeModal: () => void;
 }): JSX.Element => {
+  const filename = useFilename();
+
   const downloadRecoveryFile = () => {
     downloadBlob(
-      new Blob([props.getCellsAsJSON()], { type: "text/plain" }),
+      new Blob([getCellsAsJSON()], { type: "text/plain" }),
       `${props.proposedName}.json`,
     );
   };
+
+  const getCellsAsJSON = useEvent(() => {
+    const notebook = getNotebook();
+    const cells = notebookCells(notebook);
+    return JSON.stringify(
+      {
+        filename: filename,
+        cells: cells.map((cell) => {
+          return { name: cell.name, code: cell.code };
+        }),
+      },
+      // no replacer
+      null,
+      // whitespace for indentation
+      2,
+    );
+  });
 
   // NB: we use markdown class to have sane styling for list, paragraph
   return (
@@ -41,40 +63,51 @@ const RecoveryModal = (props: {
           }
         }}
       >
-        <DialogTitle className="text-accent mb-6">
+        <DialogTitle className="text-accent-foreground mb-6">
           Download unsaved changes?
         </DialogTitle>
-        <DialogDescription className="markdown">
-          <p>This app has unsaved changes. To recover:</p>
+        <DialogDescription
+          className="markdown break-words"
+          style={{ wordBreak: "break-word" }}
+        >
+          <div className="prose dark:prose-invert">
+            <p>This app has unsaved changes. To recover:</p>
 
-          <ol>
-            <li style={{ paddingBottom: "10px" }}>
-              Click the "Download" button. This will download a file
-              called&nbsp;
-              <code>{props.proposedName}.json</code>. This file contains your
-              code.
-            </li>
+            <ol>
+              <li style={{ paddingBottom: "10px" }}>
+                Click the "Download" button. This will download a file
+                called&nbsp;
+                <code>{props.proposedName}.json</code>. This file contains your
+                code.
+              </li>
 
-            <li style={{ paddingBottom: "10px" }}>
-              In your terminal, type
-              <code style={{ display: "block", padding: "10px" }}>
-                marimo recover {props.proposedName}.json {">"}{" "}
-                {props.proposedName}.py
-              </code>
-              to overwrite <code>{props.proposedName}.py</code> with the
-              recovered changes.
-            </li>
-          </ol>
+              <li style={{ paddingBottom: "10px" }}>
+                In your terminal, type
+                <code style={{ display: "block", padding: "10px" }}>
+                  marimo recover {props.proposedName}.json {">"}{" "}
+                  {props.proposedName}.py
+                </code>
+                to overwrite <code>{props.proposedName}.py</code> with the
+                recovered changes.
+              </li>
+            </ol>
+          </div>
         </DialogDescription>
         <DialogFooter>
           <Button
             aria-label="Cancel"
             variant="secondary"
+            data-testid="cancel-recovery-button"
             onClick={props.closeModal}
           >
             Cancel
           </Button>
-          <Button aria-label="Download" variant="default" type="submit">
+          <Button
+            data-testid="download-recovery-button"
+            aria-label="Download"
+            variant="default"
+            type="submit"
+          >
             Download
           </Button>
         </DialogFooter>
@@ -86,9 +119,8 @@ const RecoveryModal = (props: {
 export const RecoveryButton = (props: {
   filename: string | null;
   needsSave: boolean;
-  getCellsAsJSON: () => string;
 }): JSX.Element => {
-  const { filename, needsSave, getCellsAsJSON } = props;
+  const { filename, needsSave } = props;
   const { openModal, closeModal } = useImperativeModal();
 
   const proposedName = filename === null ? "app" : filename.slice(0, -3);
@@ -96,11 +128,7 @@ export const RecoveryButton = (props: {
   const openRecoveryModal = () => {
     if (needsSave) {
       openModal(
-        <RecoveryModal
-          getCellsAsJSON={getCellsAsJSON}
-          proposedName={proposedName}
-          closeModal={closeModal}
-        />,
+        <RecoveryModal proposedName={proposedName} closeModal={closeModal} />,
       );
     }
   };
@@ -116,7 +144,7 @@ export const RecoveryButton = (props: {
         className="rectangle"
         color={needsSave ? "yellow" : "gray"}
       >
-        <SaveIcon strokeWidth={1.5} />
+        <SaveIcon strokeWidth={1.5} size={18} />
       </EditorButton>
     </Tooltip>
   );

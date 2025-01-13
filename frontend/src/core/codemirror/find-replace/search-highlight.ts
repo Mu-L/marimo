@@ -4,11 +4,11 @@ import { RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import {
   Decoration,
   ViewPlugin,
-  DecorationSet,
+  type DecorationSet,
   EditorView,
-  ViewUpdate,
+  type ViewUpdate,
 } from "@codemirror/view";
-import { QueryType, asQueryCreator } from "./query";
+import { type QueryType, asQueryCreator } from "./query";
 import { store } from "@/core/state/jotai";
 import { findReplaceAtom } from "./state";
 import { getAllEditorViews } from "@/core/cells/cells";
@@ -99,7 +99,7 @@ export const searchHighlighter = ViewPlugin.fromClass(
     update(update: ViewUpdate) {
       const state = update.state.field(searchState);
       if (
-        state != update.startState.field(searchState) ||
+        state !== update.startState.field(searchState) ||
         update.docChanged ||
         update.selectionSet ||
         update.viewportChanged
@@ -124,7 +124,7 @@ export const searchHighlighter = ViewPlugin.fromClass(
         }
         query.highlight(view.state, from, to, (from, to) => {
           const selected = view.state.selection.ranges.some(
-            (r) => r.from == from && r.to == to,
+            (r) => r.from === from && r.to === to,
           );
           builder.add(from, to, selected ? selectedMatchMark : matchMark);
         });
@@ -146,30 +146,3 @@ export const highlightTheme = EditorView.baseTheme({
     backgroundColor: "#6199ff88 !important",
   },
 });
-
-/**
- * Poor-man's go to definition.
- *
- * This function will select the first occurrence of the given variable name.
- */
-export function goToDefinition(view: EditorView, variableName: string) {
-  const state = view.state;
-  const search = new SearchQuery({
-    search: variableName,
-    caseSensitive: true,
-    regexp: false,
-    replace: "",
-    wholeWord: true,
-  });
-  const query = asQueryCreator(search).create();
-  const result = query.nextMatch(state, 0, 0);
-  if (result) {
-    view.focus();
-    view.dispatch({
-      selection: {
-        anchor: result.from,
-        head: result.from,
-      },
-    });
-  }
-}

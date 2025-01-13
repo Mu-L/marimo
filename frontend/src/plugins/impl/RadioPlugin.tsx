@@ -1,11 +1,10 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import clsx from "clsx";
 import { useId } from "react";
 import { z } from "zod";
 
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { IPlugin, IPluginProps } from "@/plugins/types";
+import type { IPlugin, IPluginProps } from "@/plugins/types";
 import { Labeled } from "./common/labeled";
 import { cn } from "@/utils/cn";
 
@@ -52,6 +51,7 @@ export const Radio = (props: RadioProps): JSX.Element => {
   return (
     <Labeled label={props.label} id={id} align={props.inline ? "left" : "top"}>
       <RadioGroup
+        data-testid="marimo-plugin-radio"
         value={props.value ?? ""}
         onValueChange={props.setValue}
         className={cn(props.inline && "grid-flow-col gap-4")}
@@ -62,10 +62,7 @@ export const Radio = (props: RadioProps): JSX.Element => {
             <RadioGroupItem value={option} id={`${id}-${i.toString()}`} />
             <Label
               htmlFor={`${id}-${i.toString()}`}
-              className={clsx(
-                "text-md",
-                option === props.value ? "font-semibold" : "",
-              )}
+              className="text-sm font-normal"
             >
               {option}
             </Label>

@@ -1,9 +1,9 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React, { PropsWithChildren, useEffect, useMemo } from "react";
+import React, { type PropsWithChildren, useEffect, useMemo } from "react";
 import {
-  TransformType,
+  type TransformType,
   TransformTypeSchema,
-  Transformations,
+  type Transformations,
   TransformationsSchema,
 } from "./schema";
 import {
@@ -18,7 +18,7 @@ import {
 import { Button } from "../../../components/ui/button";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm } from "react-hook-form";
-import { z } from "zod";
+import type { z } from "zod";
 import { ZodForm } from "./forms/form";
 import { getDefaults, getUnionLiteral } from "./forms/form-utils";
 import {
@@ -29,11 +29,13 @@ import {
   FunctionSquareIcon,
   GroupIcon,
   MousePointerSquareDashedIcon,
-  MousePointerSquareIcon,
+  SquareMousePointerIcon,
   PencilIcon,
   PlusIcon,
   ShuffleIcon,
   Trash2Icon,
+  BracketsIcon,
+  FileJsonIcon,
 } from "lucide-react";
 import { cn } from "../../../utils/cn";
 import {
@@ -41,7 +43,7 @@ import {
   ColumnInfoContext,
 } from "@/plugins/impl/data-frames/forms/context";
 import useEvent from "react-use-event-hook";
-import { ColumnDataTypes } from "./types";
+import type { ColumnDataTypes } from "./types";
 import { getUpdatedColumnTypes } from "./utils/getUpdatedColumnTypes";
 import { Strings } from "@/utils/strings";
 
@@ -155,7 +157,11 @@ export const TransformPanel: React.FC<Props> = ({
               <div className="flex flex-col items-center justify-center flex-grow gap-3">
                 <MousePointerSquareDashedIcon className="w-8 h-8  text-muted-foreground" />
                 <AddTransformDropdown onAdd={handleAddTransform}>
-                  <Button variant="text" size="xs">
+                  <Button
+                    data-testid="marimo-plugin-data-frames-add-transform"
+                    variant="text"
+                    size="xs"
+                  >
                     <div className="text-sm">Select a transform to begin</div>
                   </Button>
                 </AddTransformDropdown>
@@ -184,7 +190,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDelete,
 }) => {
   return (
-    <div className="flex flex-col overflow-y-hidden w-[150px] shadow-xs h-full">
+    <div className="flex flex-col overflow-y-hidden w-[180px] shadow-xs h-full">
       <div className="flex flex-col overflow-y-auto flex-grow">
         {items.map((item, idx) => {
           return (
@@ -218,6 +224,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="flex flex-row flex-shrink-0">
         <AddTransformDropdown onAdd={onAdd}>
           <Button
+            data-testid="marimo-plugin-data-frames-add-transform"
             variant="text"
             className="w-full rounded-none m-0 hover:text-accent-foreground"
             size="xs"
@@ -283,8 +290,10 @@ const ICONS: Record<TransformType["type"], React.FC<{ className?: string }>> = {
   filter_rows: FilterIcon,
   group_by: GroupIcon,
   rename_column: PencilIcon,
-  select_columns: MousePointerSquareIcon,
+  select_columns: SquareMousePointerIcon,
   sort_column: ArrowUpDownIcon,
   shuffle_rows: ShuffleIcon,
   sample_rows: CombineIcon,
+  explode_columns: BracketsIcon,
+  expand_dict: FileJsonIcon,
 };

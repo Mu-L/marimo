@@ -1,3 +1,11 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "watchdog",
+# ]
+# ///
+from __future__ import annotations
+
 import http.server
 import os
 import socketserver
@@ -10,7 +18,7 @@ from watchdog.observers import Observer
 
 
 class CORSHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
-    def end_headers(self):
+    def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header(
@@ -18,7 +26,7 @@ class CORSHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         )
         super().end_headers()
 
-    def do_OPTIONS(self):
+    def do_OPTIONS(self) -> None:
         self.send_response(200, "ok")
         self.end_headers()
 
@@ -26,23 +34,23 @@ class CORSHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 class WheelBuilderHandler(PatternMatchingEventHandler):
     patterns = ["*.py"]  # Watch for changes in Python files
 
-    def on_any_event(self, event):
-        print(f"Change detected: {event.src_path}")
-        print("Building wheel...")
-        subprocess.run(["python3", "-m", "build"])
-        print("Wheel built successfully.")
+    def on_any_event(self, event) -> None:
+        print(f"Change detected: {event.src_path}")  # noqa: T201
+        print("Building wheel...")  # noqa: T201
+        subprocess.run(["hatch", "build"])
+        print("Wheel built successfully.")  # noqa: T201
 
 
-def serve():
+def serve() -> None:
     with socketserver.TCPServer(("", 8000), CORSHTTPRequestHandler) as httpd:
         httpd.allow_reuse_address = True
-        print("Serving at http://localhost:8000")
+        print("Serving at http://localhost:8000")  # noqa: T201
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
             pass
         httpd.server_close()
-        print("Server stopped.")
+        print("Server stopped.")  # noqa: T201
 
 
 cwd = os.getcwd()
@@ -57,8 +65,8 @@ if __name__ == "__main__":
     observer.schedule(WheelBuilderHandler(), path=path, recursive=True)
     observer.start()
 
-    print("Watching for changes. Press Ctrl+C to stop.")
-    print(f"Watching directory: {path}")
+    print("Watching for changes. Press Ctrl+C to stop.")  # noqa: T201
+    print(f"Watching directory: {path}")  # noqa: T201
     try:
         while True:
             observer.join(1)

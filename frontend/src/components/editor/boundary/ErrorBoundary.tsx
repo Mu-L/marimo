@@ -1,8 +1,8 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { PropsWithChildren } from "react";
+import type { PropsWithChildren } from "react";
 import {
   ErrorBoundary as ReactErrorBoundary,
-  FallbackProps,
+  type FallbackProps,
 } from "react-error-boundary";
 import { Button } from "../../ui/button";
 import { Constants } from "@/core/constants";
@@ -17,9 +17,9 @@ export const ErrorBoundary: React.FC<PropsWithChildren> = (props) => {
 
 const FallbackComponent: React.FC<FallbackProps> = (props) => {
   return (
-    <div className="flex-1 flex items-center justify-center flex-col space-y-4 max-w-2xl mx-auto">
+    <div className="flex-1 flex items-center justify-center flex-col space-y-4 max-w-2xl mx-auto px-6">
       <h1 className="text-2xl font-bold">Something went wrong</h1>
-      <pre className="text-xs bg-muted/40 border rounded-md p-4">
+      <pre className="text-xs bg-muted/40 border rounded-md p-4 max-w-[80%] whitespace-normal">
         {props.error?.message}
       </pre>
       <div>
@@ -34,7 +34,11 @@ const FallbackComponent: React.FC<FallbackProps> = (props) => {
         </a>
         .
       </div>
-      <Button onClick={props.resetErrorBoundary} variant="outline">
+      <Button
+        data-testid="reset-error-boundary-button"
+        onClick={props.resetErrorBoundary}
+        variant="outline"
+      >
         Try again
       </Button>
     </div>

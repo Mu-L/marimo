@@ -8,10 +8,11 @@ TODO(akshayka): if this becomes a bottleneck, use a library like dm-tree
 (this implementation will be slow large structures); as of writing,
 installation of dm-tree on macOS is buggy
 """
+
 from __future__ import annotations
 
 import itertools
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
 STRUCT_TYPE = Union[Tuple[Any, ...], List[Any], Dict[Any, Any]]
 UNFLATTEN_TYPE = Callable[[List[Any]], Union[STRUCT_TYPE, Any]]
@@ -30,6 +31,14 @@ def _flatten_sequence(
     value: list[Any] | tuple[Any, ...], json_compat_keys: bool, seen: set[int]
 ) -> FLATTEN_RET_TYPE:
     """Flatten a sequence of values"""
+    base_type: Type[List[Any]] | Type[Tuple[Any, ...]]
+    if isinstance(value, list):
+        base_type = list
+    elif isinstance(value, tuple):
+        base_type = tuple
+    else:
+        raise ValueError("value is not a list or tuple: ", value)
+
     # Algorithm:
     #
     # Accumulate a list of flattened pieces and unflattener functions,
@@ -46,7 +55,7 @@ def _flatten_sequence(
     # the recursion stack depth compared to the reference implementation
     if not value:
         # unflattener returns an empty tuple or empty list
-        return [], lambda _: type(value)()
+        return [], lambda _: base_type()
 
     lengths = []
     flattened_pieces: list[list[Any]] = []
@@ -173,12 +182,15 @@ def flatten(value: Any, json_compat_keys: bool = False) -> FLATTEN_RET_TYPE:
     the flattened structure.
 
     Usage:
-        value = [1, [2, 3], {"4": [5, 6]}, []]
-        flattened, unflattener = flatten(value)
-        # apply a map or other processing to each value of flattened ...
-        # ...
-        # packed_as_value has same nesting structure as value
-        packed_as_value = unflattener(processed_flattened)
+
+    ```python
+    value = [1, [2, 3], {"4": [5, 6]}, []]
+    flattened, unflattener = flatten(value)
+    # apply a map or other processing to each value of flattened ...
+    # ...
+    # packed_as_value has same nesting structure as value
+    packed_as_value = unflattener(processed_flattened)
+    ```
 
     Args:
     ----
@@ -211,3 +223,25 @@ def flatten(value: Any, json_compat_keys: bool = False) -> FLATTEN_RET_TYPE:
         return u(vector)
 
     return flattened, unflatten_with_validation
+
+
+def contains_instance(value: Any, instance: Any) -> bool:
+    """
+    Recursively checks if value contains the given instance
+    """
+
+    seen: set[int] = set()
+
+    def _contains_instance(value: Any) -> bool:
+        if id(value) in seen:
+            return False
+        seen.add(id(value))
+
+        if isinstance(value, (tuple, list)):
+            return any(_contains_instance(v) for v in value)
+        elif isinstance(value, dict):
+            return any(_contains_instance(v) for v in value.values())
+        else:
+            return isinstance(value, instance)
+
+    return _contains_instance(value)

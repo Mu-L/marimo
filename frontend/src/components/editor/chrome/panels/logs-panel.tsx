@@ -1,10 +1,12 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { useCellActions, useCellLogs } from "@/core/cells/cells";
-import { CellLog, formatLogTimestamp } from "@/core/cells/logs";
+import { type CellLog, formatLogTimestamp } from "@/core/cells/logs";
 import { cn } from "@/utils/cn";
 import React from "react";
 import { FileTextIcon } from "lucide-react";
 import { CellLink } from "../../links/cell-link";
+import { PanelEmptyState } from "./empty-state";
+import { ClearButton } from "@/components/buttons/clear-button";
 
 interface Props {
   className?: string;
@@ -17,22 +19,24 @@ export const LogsPanel: React.FC = () => {
 
   if (logs.length === 0) {
     return (
-      <div className="mx-6 my-6 flex flex-row gap-2 items-center rounded-lg">
-        <FileTextIcon className="text-muted-foreground" />
-        <span className="mt-[0.25rem] text-muted-foreground">No logs</span>
-      </div>
+      <PanelEmptyState
+        title="No logs"
+        description={
+          <span>
+            <code className="border rounded px-1">stdout</code> and{" "}
+            <code className="border rounded px-1">stderr</code> logs will appear
+            here.
+          </span>
+        }
+        icon={<FileTextIcon />}
+      />
     );
   }
 
   return (
     <>
       <div className="flex flex-row justify-end px-2 py-1">
-        <button
-          className="text-xs font-semibold text-accent-foreground"
-          onClick={clearLogs}
-        >
-          Clear
-        </button>
+        <ClearButton dataTestId="clear-logs-button" onClick={clearLogs} />
       </div>
       <div className="overflow-auto flex-1">
         <LogViewer logs={logs} className="min-w-[300px]" />
@@ -75,7 +79,9 @@ function formatLog(log: CellLog) {
 
   return (
     <>
-      <span className="flex-shrink-0 text-[var(--gray-10)]">[{timestamp}]</span>
+      <span className="flex-shrink-0 text-[var(--gray-10)] dark:text-[var(--gray-11)]">
+        [{timestamp}]
+      </span>
       <span className={cn("flex-shrink-0", color)}>{level}</span>
       <span className="flex-shrink-0 text-[var(--gray-10)]">
         (<CellLink cellId={log.cellId} />)

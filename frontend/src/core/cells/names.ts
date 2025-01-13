@@ -1,6 +1,6 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-export const DEFAULT_CELL_NAME = "__";
+export const DEFAULT_CELL_NAME = "_";
 
 // Generated with `python scripts/print_banned_cell_names.py`
 const DISALLOWED_NAMES = new Set([
@@ -49,7 +49,7 @@ const DISALLOWED_NAMES = new Set([
 /**
  * Make's name pythonic - removes spaces, special characters and makes lowercase
  */
-export function normalizeName(name: string) {
+export function normalizeName(name: string, lowercase = true): string {
   name = name.trim();
   if (!name) {
     return DEFAULT_CELL_NAME;
@@ -58,7 +58,8 @@ export function normalizeName(name: string) {
   if (/^\d/.test(name)) {
     name = `_${name}`;
   }
-  return name.replaceAll(/\W/g, "_").toLowerCase();
+  name = name.replaceAll(/\W/g, "_");
+  return lowercase ? name.toLowerCase() : name;
 }
 
 /**
@@ -89,8 +90,16 @@ export function getValidName(name: string, existingNames: string[]): string {
  * Print the cell name if differs from DEFAULT_CELL_NAME
  */
 export function displayCellName(name: string, cellIndex: number): string {
-  if (name !== DEFAULT_CELL_NAME) {
-    return name;
+  if (isInternalCellName(name)) {
+    return `cell-${cellIndex}`;
   }
-  return `cell-${cellIndex}`;
+  return name;
+}
+
+// Default cell names are "_" and "__" (for backwards compatibility)
+export function isInternalCellName(name: string | undefined): boolean {
+  if (!name) {
+    return true;
+  }
+  return name === DEFAULT_CELL_NAME || name === "__";
 }

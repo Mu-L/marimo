@@ -1,6 +1,6 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { Extension } from "@codemirror/state";
-import { LanguageAdapter } from "./types";
+import { type Extension, Prec } from "@codemirror/state";
+import type { LanguageAdapter } from "./types";
 import {
   pythonLanguage,
   localCompletionSource,
@@ -11,15 +11,23 @@ import {
   foldInside,
   LanguageSupport,
 } from "@codemirror/language";
-import { CompletionConfig } from "@/core/config/config-schema";
+import type { CompletionConfig } from "@/core/config/config-schema";
 import { autocompletion } from "@codemirror/autocomplete";
 import { completer } from "../completion/completer";
+import type { HotkeyProvider } from "@/core/hotkeys/hotkeys";
+import type { PlaceholderType } from "../config/extension";
+import {
+  smartPlaceholderExtension,
+  clickablePlaceholderExtension,
+} from "../placeholder/extensions";
+import type { MovementCallbacks } from "../cells/extensions";
 
 /**
  * Language adapter for Python.
  */
 export class PythonLanguageAdapter implements LanguageAdapter {
-  type = "python" as const;
+  readonly type = "python";
+  readonly defaultCode = "";
 
   transformIn(code: string): [string, number] {
     return [code, 0];
@@ -33,7 +41,12 @@ export class PythonLanguageAdapter implements LanguageAdapter {
     return true;
   }
 
-  getExtension(completionConfig: CompletionConfig): Extension {
+  getExtension(
+    completionConfig: CompletionConfig,
+    _hotkeys: HotkeyProvider,
+    placeholderType: PlaceholderType,
+    cellMovementCallbacks: MovementCallbacks,
+  ): Extension[] {
     return [
       // Whether or not to require keypress to activate autocompletion (default
       // keymap is Ctrl+Space)
@@ -49,6 +62,16 @@ export class PythonLanguageAdapter implements LanguageAdapter {
         override: [completer],
       }),
       customPythonLanguageSupport(),
+      placeholderType === "marimo-import"
+        ? Prec.highest(smartPlaceholderExtension("import marimo as mo"))
+        : placeholderType === "ai"
+          ? clickablePlaceholderExtension({
+              beforeText: "Start coding or ",
+              linkText: "generate",
+              afterText: " with AI.",
+              onClick: cellMovementCallbacks.aiCellCompletion,
+            })
+          : [],
     ];
   }
 }

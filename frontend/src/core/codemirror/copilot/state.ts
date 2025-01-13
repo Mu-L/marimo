@@ -1,11 +1,15 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { getUserConfig, userConfigAtom } from "@/core/config/config";
-import { waitFor } from "@/core/state/jotai";
+import {
+  getResolvedMarimoConfig,
+  resolvedMarimoConfigAtom,
+} from "@/core/config/config";
+import { store, waitFor } from "@/core/state/jotai";
+import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 
 const KEY = "marimo:copilot:signedIn";
 
-export const copilotSignedInState = atomWithStorage<boolean | null>(
+export const isGitHubCopilotSignedInState = atomWithStorage<boolean | null>(
   KEY,
   null,
   undefined,
@@ -14,6 +18,24 @@ export const copilotSignedInState = atomWithStorage<boolean | null>(
   },
 );
 
+export const githubCopilotLoadingVersion = atom<number | null>(null);
+
+/**
+ * Set the currently loading document version
+ */
+export function setGitHubCopilotLoadingVersion(version: number) {
+  store.set(githubCopilotLoadingVersion, version);
+}
+/**
+ * Clear the currently loading document version, if it matches the current version
+ */
+export function clearGitHubCopilotLoadingVersion(expectedVersion: number) {
+  const currentVersion = store.get(githubCopilotLoadingVersion);
+  if (currentVersion === expectedVersion) {
+    store.set(githubCopilotLoadingVersion, null);
+  }
+}
+
 function getIsLastSignedIn() {
   const lastSignedIn = localStorage.getItem(KEY);
   return lastSignedIn === "true";
@@ -21,12 +43,12 @@ function getIsLastSignedIn() {
 
 export function isCopilotEnabled() {
   const copilot = getIsLastSignedIn();
-  const userConfig = getUserConfig();
-  return copilot && userConfig.completion.copilot;
+  const userConfig = getResolvedMarimoConfig();
+  return copilot && userConfig.completion.copilot === "github";
 }
 
 export function waitForEnabledCopilot() {
-  return waitFor(userConfigAtom, (value) => {
-    return value.completion.copilot;
+  return waitFor(resolvedMarimoConfigAtom, (value) => {
+    return value.completion.copilot === "github";
   });
 }

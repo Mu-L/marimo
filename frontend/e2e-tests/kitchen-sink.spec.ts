@@ -6,13 +6,16 @@ import {
   exportAsPNG,
   takeScreenshot,
 } from "./helper";
+import { fileURLToPath } from "node:url";
 
-const appUrl = getAppUrl("kitchen_sink.py//edit");
+const _filename = fileURLToPath(import.meta.url);
+
+const appUrl = getAppUrl("kitchen_sink.py");
 
 test("can screenshot and download as html", async ({ page }) => {
   await page.goto(appUrl);
 
-  await takeScreenshot(page, __filename);
+  await takeScreenshot(page, _filename);
   await exportAsHTMLAndTakeScreenshot(page);
 });
 

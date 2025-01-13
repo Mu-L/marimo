@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import dataclasses
 import json
 import signal
@@ -9,7 +10,7 @@ from typing import Any, Callable, Optional
 
 from marimo import _loggers
 from marimo._ast.cell import CellConfig, CellId_t
-from marimo._messaging.ops import KernelReady, serialize
+from marimo._config.config import MarimoConfig
 from marimo._messaging.types import KernelMessage
 from marimo._pyodide.streams import (
     PyodideStderr,
@@ -17,23 +18,29 @@ from marimo._pyodide.streams import (
     PyodideStdout,
     PyodideStream,
 )
-from marimo._runtime import handlers, requests
-from marimo._runtime.context import initialize_context
+from marimo._runtime import handlers, patches, requests
+from marimo._runtime.context.kernel_context import initialize_kernel_context
 from marimo._runtime.input_override import input_override
 from marimo._runtime.marimo_pdb import MarimoPdb
+from marimo._runtime.packages.pypi_package_manager import (
+    MicropipPackageManager,
+)
 from marimo._runtime.requests import (
     AppMetadata,
-    CompletionRequest,
+    CodeCompletionRequest,
     ControlRequest,
-    CreationRequest,
-    ExecutionRequest,
     SetUIElementValueRequest,
 )
 from marimo._runtime.runtime import Kernel
+from marimo._runtime.utils.set_ui_element_request_manager import (
+    SetUIElementRequestManager,
+)
+from marimo._server.export.exporter import Exporter
 from marimo._server.file_manager import AppFileManager
 from marimo._server.files.os_file_system import OSFileSystem
 from marimo._server.model import SessionMode
 from marimo._server.models.base import deep_to_camel_case
+from marimo._server.models.export import ExportAsHTMLRequest
 from marimo._server.models.files import (
     FileCreateRequest,
     FileCreateResponse,
@@ -42,6 +49,8 @@ from marimo._server.models.files import (
     FileDetailsRequest,
     FileListRequest,
     FileListResponse,
+    FileMoveRequest,
+    FileMoveResponse,
     FileUpdateRequest,
     FileUpdateResponse,
 )
@@ -50,65 +59,14 @@ from marimo._server.models.models import (
     FormatResponse,
     ReadCodeResponse,
     SaveAppConfigurationRequest,
-    SaveRequest,
+    SaveNotebookRequest,
 )
-from marimo._utils.formatter import BlackFormatter
+from marimo._server.session.session_view import SessionView
+from marimo._snippets.snippets import read_snippets
+from marimo._utils.formatter import DefaultFormatter
 from marimo._utils.parse_dataclass import parse_raw
 
 LOGGER = _loggers.marimo_logger()
-
-
-def instantiate(session: PyodideSession) -> None:
-    app = session.app_manager.app
-    execution_requests = tuple(
-        ExecutionRequest(cell_id=cell_data.cell_id, code=cell_data.code)
-        for cell_data in app.cell_manager.cell_data()
-    )
-
-    session.put_control_request(
-        CreationRequest(
-            execution_requests=execution_requests,
-            set_ui_element_value_request=SetUIElementValueRequest(list()),
-        )
-    )
-
-
-def create_session(
-    filename: str,
-    message_callback: Callable[[str], None],
-) -> tuple[PyodideSession, PyodideBridge]:
-    def write_kernel_message(op: KernelMessage) -> None:
-        message_callback(json.dumps({"op": op[0], "data": op[1]}))
-
-    app_file_manager = AppFileManager(filename=filename)
-    app = app_file_manager.app
-    app_metadata = AppMetadata(filename=filename)
-
-    session = PyodideSession(
-        app_file_manager, SessionMode.EDIT, write_kernel_message, app_metadata
-    )
-
-    write_kernel_message(
-        (
-            KernelReady.name,
-            serialize(
-                KernelReady(
-                    codes=tuple(app.cell_manager.codes()),
-                    names=tuple(app.cell_manager.names()),
-                    configs=tuple(app.cell_manager.configs()),
-                    cell_ids=tuple(app.cell_manager.cell_ids()),
-                    layout=None,
-                    resumed=False,
-                    ui_values={},
-                    last_executed_code={},
-                )
-            ),
-        )
-    )
-
-    bridge = PyodideBridge(session)
-
-    return session, bridge
 
 
 class AsyncQueueManager:
@@ -119,8 +77,13 @@ class AsyncQueueManager:
         # ) are sent through the control queue
         self.control_queue = asyncio.Queue[requests.ControlRequest]()
 
+        # set UI elements duplicated in another queue so they can be batched
+        self.set_ui_element_queue = asyncio.Queue[
+            requests.SetUIElementValueRequest
+        ]()
+
         # Code completion requests are sent through a separate queue
-        self.completion_queue = asyncio.Queue[requests.CompletionRequest]()
+        self.completion_queue = asyncio.Queue[requests.CodeCompletionRequest]()
 
         # Input messages for the user's Python code are sent through the
         # input queue
@@ -141,6 +104,7 @@ class PyodideSession:
         mode: SessionMode,
         on_write: Callable[[KernelMessage], None],
         app_metadata: AppMetadata,
+        user_config: MarimoConfig,
     ) -> None:
         """Initialize kernel and client connection to it."""
         self.app_manager = app
@@ -148,9 +112,12 @@ class PyodideSession:
         self.app_metadata = app_metadata
         self._queue_manager = AsyncQueueManager()
         self.session_consumer = on_write
+        self.session_view = SessionView()
+        self._initial_user_config = user_config
 
         self.consumers: list[Callable[[KernelMessage], None]] = [
             lambda msg: self.session_consumer(msg),
+            lambda msg: self.session_view.add_raw_operation(msg[1]),
         ]
 
     def _on_message(self, msg: KernelMessage) -> None:
@@ -158,27 +125,45 @@ class PyodideSession:
             consumer(msg)
 
     async def start(self) -> None:
-        self.kernel_task = launch_pyodide_kernel(
+        self.kernel_task = _launch_pyodide_kernel(
             control_queue=self._queue_manager.control_queue,
+            set_ui_element_queue=self._queue_manager.set_ui_element_queue,
             completion_queue=self._queue_manager.completion_queue,
             input_queue=self._queue_manager.input_queue,
             on_message=self._on_message,
             is_edit_mode=self.mode == SessionMode.EDIT,
             configs=self.app_manager.app.cell_manager.config_map(),
             app_metadata=self.app_metadata,
+            user_config=self._initial_user_config,
         )
         await self.kernel_task.start()
 
     def put_control_request(self, request: requests.ControlRequest) -> None:
         self._queue_manager.control_queue.put_nowait(request)
+        if isinstance(request, requests.SetUIElementValueRequest):
+            self._queue_manager.set_ui_element_queue.put_nowait(request)
 
     def put_completion_request(
-        self, request: requests.CompletionRequest
+        self, request: requests.CodeCompletionRequest
     ) -> None:
         self._queue_manager.completion_queue.put_nowait(request)
 
     def put_input(self, text: str) -> None:
         self._queue_manager.input_queue.put_nowait(text)
+
+    def find_packages(self, code: str) -> list[str]:
+        """
+        Find the packages in the code based on the imports,
+        and mapping from module names to package names.
+        """
+        import pyodide.code  # type: ignore
+
+        imports: list[str] = pyodide.code.find_imports(code)  # type: ignore
+        if not isinstance(imports, list):
+            return []
+
+        package_manager = MicropipPackageManager()
+        return [package_manager.module_to_package(im) for im in imports]
 
 
 class PyodideBridge:
@@ -201,7 +186,7 @@ class PyodideBridge:
         self.session.put_input(text)
 
     def code_complete(self, request: str) -> None:
-        parsed = parse_raw(json.loads(request), requests.CompletionRequest)
+        parsed = parse_raw(json.loads(request), requests.CodeCompletionRequest)
         self.session.put_completion_request(parsed)
 
     def read_code(self) -> str:
@@ -209,20 +194,28 @@ class PyodideBridge:
         response = ReadCodeResponse(contents=contents)
         return json.dumps(deep_to_camel_case(dataclasses.asdict(response)))
 
+    async def read_snippets(self) -> str:
+        snippets = await read_snippets()
+        return json.dumps(deep_to_camel_case(dataclasses.asdict(snippets)))
+
     def format(self, request: str) -> str:
         parsed = parse_raw(json.loads(request), FormatRequest)
-        formatter = BlackFormatter(line_length=parsed.line_length)
+        formatter = DefaultFormatter(line_length=parsed.line_length)
 
         response = FormatResponse(codes=formatter.format(parsed.codes))
         return json.dumps(deep_to_camel_case(dataclasses.asdict(response)))
 
     def save(self, request: str) -> None:
-        parsed = parse_raw(json.loads(request), SaveRequest)
+        parsed = parse_raw(json.loads(request), SaveNotebookRequest)
         self.session.app_manager.save(parsed)
 
     def save_app_config(self, request: str) -> None:
         parsed = parse_raw(json.loads(request), SaveAppConfigurationRequest)
         self.session.app_manager.save_app_config(parsed.config)
+
+    def save_user_config(self, request: str) -> None:
+        parsed = parse_raw(json.loads(request), requests.SetUserConfigRequest)
+        self.session.put_control_request(parsed)
 
     def rename_file(self, filename: str) -> None:
         self.session.app_manager.rename(filename)
@@ -251,8 +244,16 @@ class PyodideBridge:
     ) -> str:
         body = parse_raw(json.loads(request), FileCreateRequest)
         try:
+            # If we need to eliminate the overhead associated with
+            # base64-encoding/decoding the file contents, we could try pushing
+            # filesystem operations into JavaScript
+            decoded_contents = (
+                base64.b64decode(body.contents)
+                if body.contents is not None
+                else None
+            )
             info = self.file_system.create_file_or_directory(
-                body.path, body.type, body.name, body.contents
+                body.path, body.type, body.name, decoded_contents
             )
             response = FileCreateResponse(success=True, info=info)
         except Exception as e:
@@ -268,35 +269,74 @@ class PyodideBridge:
         response = FileDeleteResponse(success=success)
         return json.dumps(deep_to_camel_case(dataclasses.asdict(response)))
 
-    def update_file_or_directory(
+    def move_file_or_directory(
+        self,
+        request: str,
+    ) -> str:
+        body = parse_raw(json.loads(request), FileMoveRequest)
+        try:
+            info = self.file_system.move_file_or_directory(
+                body.path, body.new_path
+            )
+            response = FileMoveResponse(success=True, info=info)
+        except Exception as e:
+            response = FileMoveResponse(success=False, message=str(e))
+        return json.dumps(deep_to_camel_case(dataclasses.asdict(response)))
+
+    def update_file(
         self,
         request: str,
     ) -> str:
         body = parse_raw(json.loads(request), FileUpdateRequest)
         try:
-            info = self.file_system.update_file_or_directory(
-                body.path, body.new_path
-            )
-            response = FileUpdateResponse(success=True, info=info)
+            with open(body.path, "w") as file:
+                file.write(body.contents)
+            response = FileUpdateResponse(success=True)
         except Exception as e:
             response = FileUpdateResponse(success=False, message=str(e))
         return json.dumps(deep_to_camel_case(dataclasses.asdict(response)))
 
+    def export_html(self, request: str) -> str:
+        parsed = parse_raw(json.loads(request), ExportAsHTMLRequest)
+        html, _filename = Exporter().export_as_html(
+            file_manager=self.session.app_manager,
+            session_view=self.session.session_view,
+            display_config=self.session._initial_user_config["display"],
+            request=parsed,
+        )
+        return json.dumps(html)
 
-def launch_pyodide_kernel(
+    def export_markdown(self, request: str) -> str:
+        del request
+        md, _filename = Exporter().export_as_md(
+            file_manager=self.session.app_manager,
+        )
+        return json.dumps(md)
+
+
+def _launch_pyodide_kernel(
     control_queue: asyncio.Queue[ControlRequest],
-    completion_queue: asyncio.Queue[CompletionRequest],
+    set_ui_element_queue: asyncio.Queue[SetUIElementValueRequest],
+    completion_queue: asyncio.Queue[CodeCompletionRequest],
     input_queue: asyncio.Queue[str],
     on_message: Callable[[KernelMessage], None],
     is_edit_mode: bool,
     configs: dict[CellId_t, CellConfig],
     app_metadata: AppMetadata,
+    user_config: MarimoConfig,
 ) -> RestartableTask:
     from marimo._output.formatters.formatters import register_formatters
 
     register_formatters()
 
     LOGGER.debug("Launching kernel")
+
+    # Patches for pyodide compatibility
+    patches.patch_pyodide_networking()
+
+    # Some libraries mess with Python's default recursion limit, which becomes
+    # a problem when running with Pyodide.
+    patches.patch_recursion_limit(limit=1000)
 
     # Create communication channels
     stream = PyodideStream(on_message, input_queue)
@@ -305,6 +345,11 @@ def launch_pyodide_kernel(
     stdin = PyodideStdin(stream) if is_edit_mode else None
     debugger = MarimoPdb(stdout=stdout, stdin=stdin) if is_edit_mode else None
 
+    def _enqueue_control_request(req: ControlRequest) -> None:
+        control_queue.put_nowait(req)
+        if isinstance(req, SetUIElementValueRequest):
+            set_ui_element_queue.put_nowait(req)
+
     kernel = Kernel(
         cell_configs=configs,
         app_metadata=app_metadata,
@@ -312,13 +357,20 @@ def launch_pyodide_kernel(
         stdout=stdout,
         stderr=stderr,
         stdin=stdin,
-        input_override=input_override,
+        module=patches.patch_main_module(
+            file=app_metadata.filename, input_override=input_override
+        ),
+        enqueue_control_request=_enqueue_control_request,
         debugger_override=debugger,
+        user_config=user_config,
     )
-    initialize_context(
+    initialize_kernel_context(
         kernel=kernel,
         stream=stream,
+        stdout=stdout,
+        stderr=stderr,
         virtual_files_supported=False,
+        mode=SessionMode.EDIT if is_edit_mode else SessionMode.RUN,
     )
 
     if is_edit_mode:
@@ -326,15 +378,24 @@ def launch_pyodide_kernel(
             signal.SIGINT, handlers.construct_interrupt_handler(kernel)
         )
 
+    ui_element_request_mgr = SetUIElementRequestManager(set_ui_element_queue)
+
     async def listen_messages() -> None:
         while True:
-            request = await control_queue.get()
+            request: ControlRequest | None = await control_queue.get()
             LOGGER.debug("received request %s", request)
-            await kernel.handle_message(request)
+            if isinstance(request, requests.SetUIElementValueRequest):
+                request = ui_element_request_mgr.process_request(request)
+
+            if request is not None:
+                await kernel.handle_message(request)
 
     async def listen_completion() -> None:
         while True:
             request = await completion_queue.get()
+            while not completion_queue.empty():
+                # discard stale requests to avoid choking the runtime
+                request = await completion_queue.get()
             LOGGER.debug("received completion request %s", request)
             # 5 is arbitrary, but is a good limit:
             # too high will cause long load times

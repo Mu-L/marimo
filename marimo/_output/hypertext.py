@@ -1,7 +1,10 @@
 # Copyright 2024 Marimo. All rights reserved.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, final
+import os
+import weakref
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Iterator, Literal, Optional, cast, final
 
 from marimo._messaging.mimetypes import KnownMimeType
 from marimo._output.mime import MIME
@@ -12,6 +15,23 @@ if TYPE_CHECKING:
     from marimo._plugins.core.web_component import JSONType
     from marimo._plugins.ui._core.ui_element import UIElement
     from marimo._plugins.ui._impl.batch import batch as batch_plugin
+
+
+def _hypertext_cleanup(virtual_filenames: list[str]) -> None:
+    """Cleanup side-effects related to initialization of Html."""
+    from marimo._runtime.context import (
+        ContextNotInitializedError,
+        get_context,
+    )
+
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
+        return
+
+    if ctx is not None and ctx.virtual_files_supported:
+        for f in virtual_filenames:
+            ctx.virtual_file_registry.dereference(f)
 
 
 @mddoc
@@ -25,7 +45,7 @@ class Html(MIME):
     strings. For example:
 
     ```python3
-    hello_world = Html('<h2>Hello, World</h2>')
+    hello_world = Html("<h2>Hello, World</h2>")
     Html(
         f'''
         <h1>Hello, Universe!</h1>
@@ -34,23 +54,18 @@ class Html(MIME):
     )
     ```
 
-    **Attributes.**
+    Attributes:
+        text: a string of HTML
 
-    - `text`: a string of HTML
+    Args:
+        text: a string of HTML
 
-    **Initialization Args.**
-
-    - `text`: a string of HTML
-
-    **Methods.**
-
-    - `batch`: convert this HTML element into a batched UI element
-    - `callout`: wrap this element in a callout
-    - `center`: center this element in the output area
-    - `right`: right-justify this element in the output area
+    Methods:
+        batch: convert this HTML element into a batched UI element
+        callout: wrap this element in a callout
+        center: center this element in the output area
+        right: right-justify this element in the output area
     """
-
-    _text: str
 
     def __init__(self, text: str) -> None:
         """Initialize the HTML element.
@@ -74,9 +89,9 @@ class Html(MIME):
         # Virtual File Refcounting
         #
         # HTML elements are responsible for maintaining the reference counts
-        # of virtual files: virtual files cannot be disposed when HTML elements
-        # reference them. For example, a user might cache HTML referencing a
-        # virtual file if they create it using functools.cache.
+        # of virtual files: virtual files cannot be disposed while HTML
+        # elements reference them. For example, a user might cache HTML
+        # referencing a virtual file if they create it using functools.cache.
         #
         # flatten the text to make sure searching isn't broken by newlines
         flat_text = flatten_string(self._text)
@@ -85,25 +100,11 @@ class Html(MIME):
                 ctx.virtual_file_registry.reference(virtual_filename)
                 self._virtual_filenames.append(virtual_filename)
 
-    def __del__(self) -> None:
-        """Cleanup side-effects related to initialization.
-
-        Subclasses MUST implement a __del__ method that ends by calling
-        this method.
-        """
-
-        from marimo._runtime.context import (
-            ContextNotInitializedError,
-            get_context,
+        # Dereference virtual files on object destruction
+        finalizer = weakref.finalize(
+            self, _hypertext_cleanup, self._virtual_filenames
         )
-
-        try:
-            ctx = get_context()
-        except ContextNotInitializedError:
-            return
-
-        for f in self._virtual_filenames:
-            ctx.virtual_file_registry.dereference(f)
+        finalizer.atexit = False
 
     @property
     def text(self) -> str:
@@ -112,6 +113,21 @@ class Html(MIME):
 
     @final
     def _mime_(self) -> tuple[KnownMimeType, str]:
+        no_js = os.getenv("MARIMO_NO_JS", "false").lower() == "true"
+        if no_js and hasattr(self, "_repr_png_"):
+            return (
+                "image/png",
+                cast(
+                    str, cast(Any, self)._repr_png_().decode()
+                ),  # ignore[no-untyped-call]
+            )
+        if no_js and hasattr(self, "_repr_markdown_"):
+            return (
+                "text/markdown",
+                cast(
+                    str, cast(Any, self)._repr_markdown_()
+                ),  # ignore[no-untyped-call]
+            )
         return ("text/html", self.text)
 
     def __format__(self, spec: str) -> str:
@@ -126,24 +142,22 @@ class Html(MIME):
         This method lets you create custom UI elements that are represented
         by arbitrary HTML.
 
-        **Example.**
+        Example:
+            ```python3
+            user_info = mo.md(
+                '''
+                - What's your name?: {name}
+                - When were you born?: {birthday}
+                '''
+            ).batch(name=mo.ui.text(), birthday=mo.ui.date())
+            ```
 
-        ```python3
-        user_info = mo.md(
-            '''
-            - What's your name?: {name}
-            - When were you born?: {birthday}
-            '''
-        ).batch(name=mo.ui.text(), birthday=mo.ui.date())
-        ```
+            In this example, `user_info` is a UI Element whose output is markdown
+            and whose value is a dict with keys `'name'` and '`birthday`'
+            (and values equal to the values of their corresponding elements).
 
-        In this example, `user_info` is a UI Element whose output is markdown
-        and whose value is a dict with keys `'name'` and '`birthday`'
-        (and values equal to the values of their corresponding elements).
-
-        **Args.**
-
-        - elements: the UI elements to interpolate into the HTML template.
+        Args:
+            elements: the UI elements to interpolate into the HTML template.
         """
         from marimo._plugins.ui._impl.batch import batch as batch_plugin
 
@@ -153,15 +167,13 @@ class Html(MIME):
     def center(self) -> Html:
         """Center an item.
 
-        **Example.**
+        Example:
+            ```python3
+            mo.md("# Hello, world").center()
+            ```
 
-        ```python3
-        mo.md("# Hello, world").center()
-        ```
-
-        **Returns.**
-
-        An `Html` object.
+        Returns:
+            An `Html` object.
         """
         from marimo._plugins.stateless import flex
 
@@ -171,15 +183,13 @@ class Html(MIME):
     def right(self) -> Html:
         """Right-justify.
 
-        **Example.**
+        Example:
+            ```python3
+            mo.md("# Hello, world").right()
+            ```
 
-        ```python3
-        mo.md("# Hello, world").right()
-        ```
-
-        **Returns.**
-
-        An `Html` object.
+        Returns:
+            An `Html` object.
         """
         from marimo._plugins.stateless import flex
 
@@ -189,15 +199,13 @@ class Html(MIME):
     def left(self) -> Html:
         """Left-justify.
 
-        **Example.**
+        Example:
+            ```python3
+            mo.md("# Hello, world").left()
+            ```
 
-        ```python3
-        mo.md("# Hello, world").left()
-        ```
-
-        **Returns.**
-
-        An `Html` object.
+        Returns:
+            An `Html` object.
         """
         from marimo._plugins.stateless import flex
 
@@ -216,15 +224,14 @@ class Html(MIME):
         importance. You can style the callout for different situations with the
         `kind` argument.
 
-        **Examples.**
+        Examples:
+            ```python3
+            mo.md("Hooray, you did it!").callout(kind="success")
+            ```
 
-        ```python3
-        mo.md("Hooray, you did it!").callout(kind="success")
-        ```
-
-        ```python3
-        mo.md("It's dangerous to go alone!").callout(kind="warn")
-        ```
+            ```python3
+            mo.md("It's dangerous to go alone!").callout(kind="warn")
+            ```
         """
 
         from marimo._plugins.stateless.callout import callout as _callout
@@ -232,24 +239,47 @@ class Html(MIME):
         return _callout(self, kind=kind)
 
     @mddoc
-    def style(self, style: dict[str, Any]) -> Html:
+    def style(
+        self, style: Optional[dict[str, Any]] = None, **kwargs: Any
+    ) -> Html:
         """Wrap an object in a styled container.
 
-        **Example.**
+        Example:
+            ```python
+            mo.md("...").style({"max-height": "300px", "overflow": "auto"})
+            mo.md("...").style(max_height="300px", overflow="auto")
+            ```
 
-        ```python
-        mo.md("...").style({'max-height': '300px', 'overflow': 'auto'})
-        ```
-
-        **Args.**
-
-        - `styles`: a dict of CSS styles, keyed by property name
+        Args:
+            style: an optional dict of CSS styles, keyed by property name
+            **kwargs: CSS styles as keyword arguments
         """
         from marimo._plugins.stateless import style as _style
 
-        return _style.style(self, style)
+        return _style.style(self, style=style, **kwargs)
+
+    def _repr_html_(self) -> str:
+        return self.text
 
 
 def _js(text: str) -> Html:
     # TODO: interpolation of Python values to javascript
     return Html("<script>" + text + "</script>")
+
+
+@contextmanager
+def patch_html_for_non_interactive_output() -> Iterator[None]:
+    """
+    Patch Html to return text/markdown for simpler non-interactive outputs,
+    that can be rendered without JS/CSS (just as in the GitHub viewer).
+    """
+    # HACK: we must set MARIMO_NO_JS since the rendering may happen in another
+    # thread
+    # This won't work when we are running a marimo server and are auto-exporting
+    # with this enabled.
+    old_no_js = os.getenv("MARIMO_NO_JS", "false")
+    try:
+        os.environ["MARIMO_NO_JS"] = "true"
+        yield
+    finally:
+        os.environ["MARIMO_NO_JS"] = old_no_js

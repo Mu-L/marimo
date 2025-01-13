@@ -1,45 +1,77 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { createReducer } from "@/utils/createReducer";
-import { atom, useAtomValue, useSetAtom } from "jotai";
-import { useMemo } from "react";
-import { PanelType } from "./types";
+import { createReducerAndAtoms } from "@/utils/createReducer";
+import { useAtomValue } from "jotai";
+import type { PanelType } from "./types";
+import { ZodLocalStorage } from "@/utils/localStorage";
+import { z } from "zod";
 
 export interface ChromeState {
   selectedPanel: PanelType | undefined;
-  isOpen: boolean;
-  panelLocation: "left" | "bottom";
+  isSidebarOpen: boolean;
+  isTerminalOpen: boolean;
 }
+
+const storage = new ZodLocalStorage<ChromeState>(
+  "marimo:sidebar",
+  z.object({
+    selectedPanel: z
+      .string()
+      .optional()
+      .transform((v) => v as PanelType),
+    isSidebarOpen: z.boolean(),
+    isTerminalOpen: z.boolean(),
+  }),
+  initialState,
+);
 
 function initialState(): ChromeState {
   return {
     selectedPanel: "variables", // initial panel
-    isOpen: false,
-    panelLocation: "left",
+    isSidebarOpen: false,
+    isTerminalOpen: false,
   };
 }
 
-const { reducer, createActions } = createReducer(initialState, {
-  openApplication: (state, selectedPanel: PanelType) => ({
-    ...state,
-    selectedPanel,
-    // If it was closed, open it
-    // If it was open, keep it open unless it was the same application
-    isOpen: state.isOpen ? state.selectedPanel !== selectedPanel : true,
-  }),
-  openPanel: (state) => ({ ...state, isOpen: true }),
-  closePanel: (state) => ({ ...state, isOpen: false }),
-  togglePanel: (state) => ({ ...state, isOpen: !state.isOpen }),
-  setIsOpen: (state, isOpen: boolean) => ({ ...state, isOpen }),
-  changePanelLocation: (state, panelLocation: "left" | "bottom") => ({
-    ...state,
-    panelLocation,
-  }),
-});
+const {
+  reducer,
+  createActions,
+  valueAtom: chromeAtom,
+  useActions,
+} = createReducerAndAtoms(
+  () => storage.get(),
+  {
+    openApplication: (state, selectedPanel: PanelType) => ({
+      ...state,
+      selectedPanel,
+      // If it was closed, open it
+      // If it was open, keep it open unless it was the same application
+      isSidebarOpen: state.isSidebarOpen
+        ? state.selectedPanel !== selectedPanel
+        : true,
+    }),
+    toggleSidebarPanel: (state) => ({
+      ...state,
+      isSidebarOpen: !state.isSidebarOpen,
+    }),
+    setIsSidebarOpen: (state, isOpen: boolean) => ({
+      ...state,
+      isSidebarOpen: isOpen,
+    }),
+    toggleTerminal: (state) => ({
+      ...state,
+      isTerminalOpen: !state.isTerminalOpen,
+    }),
+    setIsTerminalOpen: (state, isOpen: boolean) => ({
+      ...state,
+      isTerminalOpen: isOpen,
+    }),
+  },
+  [(_prevState, newState) => storage.set(newState)],
+);
 
-const chromeAtom = atom<ChromeState>(initialState());
 export const useChromeState = () => {
   const state = useAtomValue(chromeAtom);
-  if (state.isOpen) {
+  if (state.isSidebarOpen) {
     return state;
   }
   return {
@@ -49,15 +81,10 @@ export const useChromeState = () => {
 };
 
 export function useChromeActions() {
-  const setState = useSetAtom(chromeAtom);
-
-  return useMemo(() => {
-    const actions = createActions((action) => {
-      setState((state) => reducer(state, action));
-    });
-    return actions;
-  }, [setState]);
+  return useActions();
 }
+
+export { chromeAtom };
 
 /**
  * This is exported for testing purposes only.

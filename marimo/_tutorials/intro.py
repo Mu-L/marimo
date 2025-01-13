@@ -1,7 +1,8 @@
 # Copyright 2024 Marimo. All rights reserved.
+
 import marimo
 
-__generated_with = "0.1.88"
+__generated_with = "0.9.2"
 app = marimo.App()
 
 
@@ -10,13 +11,13 @@ def __():
     import marimo as mo
 
     mo.md("# Welcome to marimo! 🌊🍃")
-    return mo,
+    return (mo,)
 
 
 @app.cell
 def __(mo):
     slider = mo.ui.slider(1, 22)
-    return slider,
+    return (slider,)
 
 
 @app.cell
@@ -31,6 +32,28 @@ def __(mo, slider):
 
         {"##" + "🍃" * slider.value}
         """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def __(mo):
+    mo.accordion(
+        {
+            "Tip: disabling automatic execution": mo.md(
+                rf"""
+            marimo lets you disable automatic execution: just go into the
+            notebook settings and set
+
+            "Runtime > On Cell Change" to "lazy".
+
+            When the runtime is lazy, after running a cell, marimo marks its
+            descendants as stale instead of automatically running them. The
+            lazy runtime puts you in control over when cells are run, while
+            still giving guarantees about the notebook state.
+            """
+            )
+        }
     )
     return
 
@@ -97,7 +120,7 @@ def __(changed, mo):
 @app.cell
 def __():
     changed = False
-    return changed,
+    return (changed,)
 
 
 @app.cell(hide_code=True)
@@ -163,7 +186,8 @@ def __(mo):
 @app.cell(hide_code=True)
 def __(mo):
     mo.md(
-        """## 2. UI elements
+        """
+        ## 2. UI elements
 
         Cells can output interactive UI elements. Interacting with a UI
         element **automatically triggers notebook execution**: when
@@ -179,20 +203,20 @@ def __(mo):
 
 @app.cell
 def __(mo):
-    mo.md("**🌊 Some UI elements.** Try interacting with the below elements.")
+    mo.md("""**🌊 Some UI elements.** Try interacting with the below elements.""")
     return
 
 
 @app.cell
 def __(mo):
     icon = mo.ui.dropdown(["🍃", "🌊", "✨"], value="🍃")
-    return icon,
+    return (icon,)
 
 
 @app.cell
 def __(icon, mo):
     repetitions = mo.ui.slider(1, 16, label=f"number of {icon.value}: ")
-    return repetitions,
+    return (repetitions,)
 
 
 @app.cell
@@ -237,7 +261,7 @@ def __(mo):
         ## 4. Running notebooks as apps
 
         marimo notebooks can double as apps. Click the app window icon in the
-        bottom-left to see this notebook in "app view."
+        bottom-right to see this notebook in "app view."
 
         Serve a notebook as an app with `marimo run` at the command-line.
         Of course, you can use marimo just to level-up your
@@ -250,7 +274,8 @@ def __(mo):
 @app.cell(hide_code=True)
 def __(mo):
     mo.md(
-        """## 5. The `marimo` command-line tool
+        """
+        ## 5. The `marimo` command-line tool
 
         **Creating and editing notebooks.** Use
 
@@ -258,13 +283,9 @@ def __(mo):
         marimo edit
         ```
 
-        in a terminal to create a new marimo notebook, or
+        in a terminal to start the marimo notebook server. From here
+        you can create a new notebook or edit existing ones.
 
-        ```
-        marimo edit notebook.py
-        ```
-
-        to create/edit a notebook called `notebook.py`.
 
         **Running as apps.** Use
 
@@ -289,7 +310,11 @@ def __(mo):
         - `markdown`: how to write markdown, with interpolated values and
            LaTeX
         - `plots`: how plotting works in marimo
+        - `sql`: how to use SQL
+        - `layout`: layout elements in marimo
         - `fileformat`: how marimo's file format works
+        - `markdown-format`: for using `.md` files in marimo
+        - `for-jupyter-users`: if you are coming from Jupyter
 
         Start a tutorial with `marimo tutorial`; for example,
 
@@ -322,9 +347,9 @@ def __(mo, tips):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def __(mo):
-    mo.md("## Finally, a fun fact")
+    mo.md("""## Finally, a fun fact""")
     return
 
 
@@ -352,17 +377,17 @@ def __():
               with `Ctrl/Cmd+s`. You can also create a named app at the
               command line, e.g., `marimo edit app_name.py`.
 
-            - _Save_ by clicking the save icon on the bottom left, or by
+            - _Save_ by clicking the save icon on the bottom right, or by
               inputting `Ctrl/Cmd+s`. By default marimo is configured
               to autosave.
             """
         ),
         "Running": (
             """
-            1. _Run a cell_ by clicking the play ( ▷ ) button on the bottom
+            1. _Run a cell_ by clicking the play ( ▷ ) button on the top
             right of a cell, or by inputting `Ctrl/Cmd+Enter`.
 
-            2. _Run a stale cell_  by clicking the yellow run button to the
+            2. _Run a stale cell_  by clicking the yellow run button on the
             right of the cell, or by inputting `Ctrl/Cmd+Enter`. A cell is
             stale when its code has been modified but not run.
 
@@ -390,12 +415,19 @@ def __():
                 screen, or with `Ctrl/Cmd+Shift+z`.
             """
         ),
+        "Disabling Automatic Execution": (
+            """
+            Via the notebook settings (gear icon) or footer panel, you
+            can disable automatic execution. This is helpful when
+            working with expensive notebooks or notebooks that have
+            side-effects like database transactions.
+            """
+        ),
         "Disabling Cells": (
             """
-            You can disable a cell via the cell context menu (open it
-            by clicking the icon to the right of a cell). marimo will
-            never run a disabled cell or any cells that depend on it. This
-            can help prevent accidental execution of expensive computations
+            You can disable a cell via the cell context menu.
+            marimo will never run a disabled cell or any cells that depend on it.
+            This can help prevent accidental execution of expensive computations
             when editing a notebook.
             """
         ),
@@ -411,8 +443,8 @@ def __():
         ),
         "Code Formatting": (
             """
-            If you have [black](https://github.com/psf/black) installed, you can format a cell with
-            the keyboard shortcut `Ctrl/Cmd+b`.
+            If you have [ruff](https://github.com/astral-sh/ruff) installed,
+            you can format a cell with the keyboard shortcut `Ctrl/Cmd+b`.
             """
         ),
         "Command Palette": (
@@ -422,19 +454,18 @@ def __():
         ),
         "Keyboard Shortcuts": (
             """
-            Click the keyboard button on the bottom left of the screen (or
-            input `Ctrl/Cmd+Shift+h`) to view a list of all keyboard
-            shortcuts.
+            Open the notebook menu (top-right) or input `Ctrl/Cmd+Shift+h` to
+            view a list of all keyboard shortcuts.
             """
         ),
         "Configuration": (
-           """
+            """
            Configure the editor by clicking the gears icon near the top-right
            of the screen.
            """
         ),
     }
-    return tips,
+    return (tips,)
 
 
 if __name__ == "__main__":

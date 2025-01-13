@@ -1,5 +1,4 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React from "react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -13,52 +12,72 @@ import {
 import { useRegisteredActions } from "../../../core/hotkeys/actions";
 import { useRecentCommands } from "../../../hooks/useRecentCommands";
 import { KeyboardHotkeys } from "../../shortcuts/renderShortcut";
-import { HOTKEYS, HotkeyAction, isHotkeyAction } from "@/core/hotkeys/hotkeys";
-import { atom, useAtom } from "jotai";
+import { type HotkeyAction, isHotkeyAction } from "@/core/hotkeys/hotkeys";
+import { atom, useAtom, useAtomValue } from "jotai";
 import { useNotebookActions } from "../actions/useNotebookActions";
 import { Objects } from "@/utils/objects";
 import { parseShortcut } from "@/core/hotkeys/shortcuts";
-import { isParentAction, flattenActions } from "../actions/types";
+import {
+  isParentAction,
+  flattenActions,
+  type ActionButton,
+} from "../actions/types";
+import { useCellActionButtons } from "../actions/useCellActionButton";
+import { lastFocusedCellAtom } from "@/core/cells/focus";
+import { useConfigActions } from "../actions/useConfigActions";
+import { hotkeysAtom } from "@/core/config/config";
+import { useEventListener } from "@/hooks/useEventListener";
 
 export const commandPaletteAtom = atom(false);
 
 export const CommandPalette = () => {
   const [open, setOpen] = useAtom(commandPaletteAtom);
   const registeredActions = useRegisteredActions();
+  const lastFocusedCell = useAtomValue(lastFocusedCellAtom);
+  const hotkeys = useAtomValue(hotkeysAtom);
+  // Cell actions
+  let cellActions = useCellActionButtons({ cell: lastFocusedCell }).flat();
+  cellActions = flattenActions(cellActions);
+  // Notebook actions
+  const configActions = useConfigActions();
   let notebookActions = useNotebookActions();
-  notebookActions = flattenActions(notebookActions);
+  notebookActions = [
+    ...flattenActions(notebookActions),
+    ...flattenActions(configActions),
+  ];
 
   const notebookActionsWithoutHotkeys = notebookActions.filter(
     (action) => !action.hotkey,
   );
-  const keyedNotebookActions = Objects.keyBy(
-    notebookActionsWithoutHotkeys,
-    (action) => action.label,
-  );
+  const keyedNotebookActions: Record<string, ActionButton | undefined> =
+    Objects.keyBy(notebookActionsWithoutHotkeys, (action) => action.label);
 
   const { recentCommands, addRecentCommand } = useRecentCommands();
   const recentCommandsSet = new Set(recentCommands);
 
-  React.useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (parseShortcut(HOTKEYS.getHotkey("global.commandPalette").key)(e)) {
-        e.preventDefault();
-        setOpen((open) => !open);
-      }
-    };
-    document.addEventListener("keydown", down);
-    return () => document.removeEventListener("keydown", down);
-  }, [setOpen]);
+  useEventListener(document, "keydown", (e) => {
+    if (parseShortcut(hotkeys.getHotkey("global.commandPalette").key)(e)) {
+      e.preventDefault();
+      setOpen((open) => !open);
+    }
+  });
 
-  const renderShortcutCommandItem = (shortcut: HotkeyAction) => {
+  const renderShortcutCommandItem = (
+    shortcut: HotkeyAction,
+    props: {
+      disabled?: boolean;
+      tooltip?: React.ReactNode;
+    },
+  ) => {
     const action = registeredActions[shortcut];
     if (!action) {
       return null;
     }
-    const hotkey = HOTKEYS.getHotkey(shortcut);
+    const hotkey = hotkeys.getHotkey(shortcut);
 
     return (
       <CommandItem
+        disabled={props.disabled}
         onSelect={() => {
           addRecentCommand(shortcut);
           // Close first and then run the action, so the dialog doesn't steal focus
@@ -70,7 +89,10 @@ export const CommandPalette = () => {
         key={shortcut}
         value={hotkey.name}
       >
-        <span>{hotkey.name}</span>
+        <span>
+          {hotkey.name}
+          {props.tooltip && <span className="ml-2">{props.tooltip}</span>}
+        </span>
         <CommandShortcut>
           <KeyboardHotkeys shortcut={hotkey.key} />
         </CommandShortcut>
@@ -78,9 +100,15 @@ export const CommandPalette = () => {
     );
   };
 
-  const renderCommandItem = (label: string, handle: () => void) => {
+  const renderCommandItem = (
+    label: string,
+    handle: () => void,
+    props: { disabled?: boolean; tooltip?: React.ReactNode } = {},
+    hotkey?: HotkeyAction,
+  ) => {
     return (
       <CommandItem
+        disabled={props.disabled}
         onSelect={() => {
           addRecentCommand(label);
           setOpen(false);
@@ -91,7 +119,15 @@ export const CommandPalette = () => {
         key={label}
         value={label}
       >
-        <span>{label}</span>
+        <span>
+          {label}
+          {props.tooltip && <span className="ml-2">({props.tooltip})</span>}
+        </span>
+        {hotkey && (
+          <CommandShortcut>
+            <KeyboardHotkeys shortcut={hotkeys.getHotkey(hotkey).key} />
+          </CommandShortcut>
+        )}
       </CommandItem>
     );
   };
@@ -105,14 +141,21 @@ export const CommandPalette = () => {
           <>
             <CommandGroup heading="Recently Used">
               {recentCommands.map((shortcut) => {
+                const action = keyedNotebookActions[shortcut];
                 // Hotkey
                 if (isHotkeyAction(shortcut)) {
-                  return renderShortcutCommandItem(shortcut);
+                  return renderShortcutCommandItem(shortcut, {
+                    disabled: action?.disabled,
+                    tooltip: action?.tooltip,
+                  });
                 }
                 // Other action
-                const action = keyedNotebookActions[shortcut];
                 if (action && !isParentAction(action)) {
-                  return renderCommandItem(action.label, action.handle);
+                  return renderCommandItem(
+                    action.label,
+                    action.handleHeadless || action.handle,
+                    { disabled: action.disabled, tooltip: action.tooltip },
+                  );
                 }
                 return null;
               })}
@@ -121,17 +164,35 @@ export const CommandPalette = () => {
           </>
         )}
         <CommandGroup heading="Commands">
-          {HOTKEYS.iterate().map((shortcut) => {
+          {hotkeys.iterate().map((shortcut) => {
             if (recentCommandsSet.has(shortcut)) {
               return null; // Don't show recent commands in the main list
             }
-            return renderShortcutCommandItem(shortcut);
+            const action = keyedNotebookActions[shortcut];
+            return renderShortcutCommandItem(shortcut, {
+              disabled: action?.disabled,
+              tooltip: action?.tooltip,
+            });
           })}
           {notebookActionsWithoutHotkeys.map((action) => {
             if (recentCommandsSet.has(action.label)) {
               return null; // Don't show recent commands in the main list
             }
-            return renderCommandItem(action.label, action.handle);
+            return renderCommandItem(
+              action.label,
+              action.handleHeadless || action.handle,
+              { disabled: action.disabled, tooltip: action.tooltip },
+            );
+          })}
+          {cellActions.map((action) => {
+            if (recentCommandsSet.has(action.label)) {
+              return null; // Don't show recent commands in the main list
+            }
+            return renderCommandItem(
+              `Cell > ${action.label}`,
+              action.handleHeadless || action.handle,
+              { disabled: action.disabled, tooltip: action.tooltip },
+            );
           })}
         </CommandGroup>
       </CommandList>

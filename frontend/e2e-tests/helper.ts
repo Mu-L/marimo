@@ -1,6 +1,6 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { Page, expect } from "@playwright/test";
-import { HotkeyProvider, HotkeyAction } from "../src/core/hotkeys/hotkeys";
+import { type Locator, type Page, expect } from "@playwright/test";
+import { HotkeyProvider, type HotkeyAction } from "../src/core/hotkeys/hotkeys";
 import path from "node:path";
 
 export async function createCellBelow(opts: {
@@ -14,8 +14,8 @@ export async function createCellBelow(opts: {
   // Hover over a cell the 'add cell' button appears
   await page.hover(cellSelector);
   await expect(
-    page.getByTestId("create-cell-button").locator(":visible").count(),
-  ).resolves.toBe(2);
+    page.getByTestId("create-cell-button").locator(":visible"),
+  ).toHaveCount(2);
 
   // Clicking the first button creates a new cell below
   await page
@@ -35,6 +35,15 @@ export async function createCellBelow(opts: {
   }
 }
 
+export async function openCellActions(page: Page, element: Locator) {
+  await element.hover();
+  await page
+    .getByTestId("cell-actions-button")
+    .locator(":visible")
+    .first()
+    .click();
+}
+
 export async function runCell(opts: { page: Page; cellSelector: string }) {
   const { page, cellSelector } = opts;
 
@@ -49,7 +58,7 @@ const countsForName: Record<string, number> = {};
 /**
  * Take a screenshot of the page.
  * @example
- * await takeScreenshot(page, __filename);
+ * await takeScreenshot(page, _filename);
  */
 export async function takeScreenshot(page: Page, filename: string) {
   const clean = path.basename(filename).replace(".spec.ts", "");
@@ -114,7 +123,6 @@ export async function exportAsHTMLAndTakeScreenshot(page: Page) {
 
   // Open a new page and take a screenshot
   const exportPage = await page.context().newPage();
-  // @ts-expect-error process not defined
   const fullPath = `${process.cwd()}/${path}`;
   await exportPage.goto(`file://${fullPath}`, {
     waitUntil: "networkidle",
@@ -122,9 +130,11 @@ export async function exportAsHTMLAndTakeScreenshot(page: Page) {
   await takeScreenshot(exportPage, path);
 
   // Toggle code
-  await exportPage.getByTestId("show-code").click();
-  // wait 100ms for the code to be shown
-  await exportPage.waitForTimeout(100);
+  if (await exportPage.isVisible("[data-testid=show-code]")) {
+    await exportPage.getByTestId("show-code").click();
+    // wait 100ms for the code to be shown
+    await exportPage.waitForTimeout(100);
+  }
 
   // Take screenshot of code
   await takeScreenshot(exportPage, `code-${path}`);
@@ -150,4 +160,31 @@ export async function exportAsPNG(page: Page) {
   // Wait for the download process to complete and save the downloaded file somewhere.
   const path = `e2e-tests/screenshots/${download.suggestedFilename()}`;
   await download.saveAs(path);
+}
+
+/**
+ * Waits for the page to load. If we have resumed a session, we restart the kernel.
+ */
+export async function maybeRestartKernel(page: Page) {
+  // Wait for cells to appear
+  await waitForCellsToRender(page);
+
+  // If it says, "You have connected to an existing session", then restart
+  const hasText = await page
+    .getByText("You have reconnected to an existing session", { exact: false })
+    .isVisible();
+  if (!hasText) {
+    return;
+  }
+
+  await page.getByTestId("notebook-menu-dropdown").click();
+  await page.getByText("Restart kernel", { exact: true }).click();
+  await page.getByLabel("Confirm Restart", { exact: true }).click();
+}
+
+/**
+ * Waits for cells to render in edit mode.
+ */
+export async function waitForCellsToRender(page: Page) {
+  await page.waitForSelector("[data-testid=cell-editor]");
 }

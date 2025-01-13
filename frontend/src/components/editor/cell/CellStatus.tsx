@@ -6,48 +6,83 @@ import {
   RefreshCwIcon,
 } from "lucide-react";
 import { Tooltip } from "../../ui/tooltip";
-import { CellRuntimeState } from "../../../core/cells/types";
+import type { CellRuntimeState } from "../../../core/cells/types";
 import { useElapsedTime } from "../../../hooks/useElapsedTime";
 import { Logger } from "@/utils/Logger";
 import { MultiIcon } from "@/components/icons/multi-icon";
 
 import "./cell-status.css";
 import { Time } from "@/utils/time";
+import { formatDistanceToNow } from "date-fns";
 
 export interface CellStatusComponentProps
   extends Pick<
     CellRuntimeState,
-    "status" | "runStartTimestamp" | "interrupted"
+    "status" | "runStartTimestamp" | "interrupted" | "lastRunStartTimestamp"
   > {
   editing: boolean;
   edited: boolean;
   disabled: boolean;
+  staleInputs: boolean;
   elapsedTime: number | null;
+  uninstantiated: boolean;
 }
+
+// Looks like HH:MM:SS.SSS AM/PM
+const timeFormatter = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+  fractionalSecondDigits: 3,
+  hour12: true,
+});
+
+// Looks like MM/DD HH:MM:SS.SSS AM/PM
+const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+  fractionalSecondDigits: 3,
+  hour12: true,
+});
 
 export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
   editing,
   status,
   disabled,
+  staleInputs,
   edited,
   interrupted,
   elapsedTime,
   runStartTimestamp,
+  lastRunStartTimestamp,
+  uninstantiated,
 }) => {
   if (!editing) {
     return null;
   }
+
+  const start = runStartTimestamp ?? lastRunStartTimestamp;
+  const lastRanTime = start ? <LastRanTime lastRanTime={start} /> : null;
 
   // unexpected states
   if (disabled && status === "running") {
     Logger.error("CellStatusComponent: disabled and running");
     return null;
   }
+
   // stale and disabled by self
-  if (disabled && status === "stale") {
+  if (disabled && staleInputs) {
     return (
       <Tooltip
-        content={"This cell is stale, but it's disabled and can't be run"}
+        content={
+          <div className="flex flex-col gap-1">
+            <span>This cell is stale, but it's disabled and can't be run</span>
+            {lastRanTime}
+          </div>
+        }
         usePortal={false}
       >
         <div
@@ -67,7 +102,15 @@ export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
   // disabled, but not stale
   if (disabled) {
     return (
-      <Tooltip content={"This cell is disabled"} usePortal={false}>
+      <Tooltip
+        content={
+          <div className="flex flex-col gap-1">
+            <span>This cell is disabled</span>
+            {lastRanTime}
+          </div>
+        }
+        usePortal={false}
+      >
         <div
           className="cell-status-icon cell-status-disabled"
           data-testid="cell-status"
@@ -80,10 +123,17 @@ export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
   }
 
   // disabled from parent
-  if (status === "disabled-transitively") {
+  if (!staleInputs && status === "disabled-transitively") {
     return (
       <Tooltip
-        content={"An ancestor of this cell is disabled, so it can't be run"}
+        content={
+          <div className="flex flex-col gap-1">
+            <span>
+              An ancestor of this cell is disabled, so it can't be run
+            </span>
+            {lastRanTime}
+          </div>
+        }
         usePortal={false}
       >
         <div
@@ -101,11 +151,16 @@ export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
   }
 
   // stale from parent being disabled
-  if (status === "stale") {
+  if (staleInputs && status === "disabled-transitively") {
     return (
       <Tooltip
         content={
-          "This cell is stale, but an ancestor is disabled so it can't be run"
+          <div className="flex flex-col gap-1">
+            <span>
+              This cell is stale, but an ancestor is disabled so it can't be run
+            </span>
+            {lastRanTime}
+          </div>
         }
         usePortal={false}
       >
@@ -126,7 +181,15 @@ export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
   // running & queued icons get priority over edited/interrupted
   if (status === "running") {
     return (
-      <Tooltip content={"This cell is running"} usePortal={false}>
+      <Tooltip
+        content={
+          <div className="flex flex-col gap-1">
+            <span>This cell is running</span>
+            {lastRanTime}
+          </div>
+        }
+        usePortal={false}
+      >
         <div
           className={"cell-status-icon elapsed-time running"}
           data-testid="cell-status"
@@ -143,7 +206,15 @@ export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
   // queued
   if (status === "queued") {
     return (
-      <Tooltip content={"This cell is queued to run"} usePortal={false}>
+      <Tooltip
+        content={
+          <div className="flex flex-col gap-1">
+            <span>This cell is queued to run</span>
+            {lastRanTime}
+          </div>
+        }
+        usePortal={false}
+      >
         <div
           className="cell-status-icon cell-status-queued"
           data-testid="cell-status"
@@ -155,15 +226,35 @@ export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
     );
   }
 
-  // outdated
-  if (edited || interrupted) {
+  // outdated: cell needs to be re-run
+  if (edited || interrupted || staleInputs || uninstantiated) {
     const elapsedTimeStr = formatElapsedTime(elapsedTime);
-    const title = interrupted
-      ? "This cell was interrupted when it was last run"
-      : "This cell has been modified since it was last run";
-    const timerTitle = interrupted
-      ? `This cell ran for ${elapsedTimeStr} before being interrupted`
-      : `This cell took ${elapsedTimeStr} to run`;
+    const elapsedTimeComponent = elapsedTime ? (
+      <ElapsedTime elapsedTime={elapsedTimeStr} />
+    ) : null;
+
+    // Customize tooltips based on why the cell needs to be re-run
+    let title = "";
+    let timerTitle: React.ReactNode = "";
+
+    if (uninstantiated) {
+      title = "This cell has not yet been run";
+    } else if (interrupted) {
+      title = "This cell was interrupted when it was last run";
+      timerTitle = (
+        <span>
+          This cell ran for {elapsedTimeComponent} before being interrupted
+        </span>
+      );
+    } else if (edited) {
+      title = "This cell has been modified since it was last run";
+      timerTitle = <span>This cell took {elapsedTimeComponent} to run</span>;
+    } else {
+      // staleInputs
+      title = "This cell has not been run with the latest inputs";
+      timerTitle = <span>This cell took {elapsedTimeComponent} to run</span>;
+    }
+
     return (
       <div className="cell-status-icon flex items-center gap-2">
         <Tooltip content={title} usePortal={false}>
@@ -175,8 +266,16 @@ export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
             <RefreshCwIcon className="h-5 w-5" strokeWidth={1.5} />
           </div>
         </Tooltip>
-        {elapsedTimeStr && (
-          <Tooltip content={timerTitle} usePortal={false}>
+        {elapsedTime && (
+          <Tooltip
+            content={
+              <div className="flex flex-col gap-1">
+                {timerTitle}
+                {lastRanTime}
+              </div>
+            }
+            usePortal={false}
+          >
             <div
               className={"elapsed-time hover-action"}
               data-testid="cell-status"
@@ -193,9 +292,18 @@ export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
   // either running or finished
   if (elapsedTime !== null) {
     const elapsedTimeStr = formatElapsedTime(elapsedTime);
+    const elapsedTimeComponent = elapsedTime ? (
+      <ElapsedTime elapsedTime={elapsedTimeStr} />
+    ) : null;
+
     return (
       <Tooltip
-        content={`This cell took ${elapsedTimeStr} to run`}
+        content={
+          <div className="flex flex-col gap-1">
+            <span>This cell took {elapsedTimeComponent} to run</span>
+            {lastRanTime}
+          </div>
+        }
         usePortal={false}
       >
         <div
@@ -213,7 +321,32 @@ export const CellStatusComponent: React.FC<CellStatusComponentProps> = ({
   return null;
 };
 
-function formatElapsedTime(elapsedTime: number | null) {
+export const ElapsedTime = (props: { elapsedTime: string }) => {
+  return (
+    <span className="tracking-wide font-semibold">{props.elapsedTime}</span>
+  );
+};
+const LastRanTime = (props: { lastRanTime: number }) => {
+  const date = new Date(props.lastRanTime * 1000);
+  const today = new Date();
+  const formatter =
+    date.toDateString() === today.toDateString()
+      ? timeFormatter
+      : dateTimeFormatter;
+  return (
+    <span>
+      Ran at{" "}
+      <strong className="tracking-wide font-semibold">
+        {formatter.format(date)}
+      </strong>{" "}
+      <span className="text-muted-foreground">
+        ({formatDistanceToNow(date)} ago)
+      </span>
+    </span>
+  );
+};
+
+export function formatElapsedTime(elapsedTime: number | null) {
   if (elapsedTime === null) {
     return "";
   }
@@ -222,11 +355,11 @@ function formatElapsedTime(elapsedTime: number | null) {
     const minutes = (elapsedTime / (1000 * 60)).toFixed(0);
     const seconds = ((elapsedTime % (1000 * 60)) / 1000).toFixed(0);
     return `${minutes.toString()}m${seconds.toString()}s`;
-  } else if (elapsedTime > 1000) {
-    return `${(elapsedTime / 1000).toFixed(2).toString()}s`;
-  } else {
-    return `${elapsedTime.toFixed(0).toString()}ms`;
   }
+  if (elapsedTime > 1000) {
+    return `${(elapsedTime / 1000).toFixed(2).toString()}s`;
+  }
+  return `${elapsedTime.toFixed(0).toString()}ms`;
 }
 
 const CellTimer = (props: { startTime: Time }) => {

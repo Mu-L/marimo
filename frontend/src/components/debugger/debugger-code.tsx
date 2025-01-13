@@ -3,7 +3,7 @@ import { langs } from "@uiw/codemirror-extensions-langs";
 import ReactCodeMirror, {
   EditorView,
   Prec,
-  ReactCodeMirrorRef,
+  type ReactCodeMirrorRef,
   keymap,
 } from "@uiw/react-codemirror";
 import React, { memo } from "react";
@@ -47,7 +47,7 @@ const DebuggerOutput: React.FC<{
       ref={ref}
       theme="dark"
       value={props.code}
-      className={`[&>*]:outline-none [&>.cm-editor]:pr-0 overflow-hidden dark`}
+      className={"[&>*]:outline-none [&>.cm-editor]:pr-0 overflow-hidden dark"}
       readOnly={true}
       editable={false}
       basicSetup={{
@@ -79,7 +79,7 @@ const DebuggerInput: React.FC<{
   const ref = React.useRef<HTMLDivElement>(null);
 
   // Capture some events to prevent default behavior
-  useKeydownOnElement(ref.current, {
+  useKeydownOnElement(ref, {
     ArrowUp: Functions.NOOP,
     ArrowDown: Functions.NOOP,
   });
@@ -89,7 +89,9 @@ const DebuggerInput: React.FC<{
       <ReactCodeMirror
         minHeight="18px"
         theme="dark"
-        className={`debugger-input [&>*]:outline-none cm-focused [&>.cm-editor]:pr-0 overflow-hidden dark border-t-4`}
+        className={
+          "debugger-input [&>*]:outline-none cm-focused [&>.cm-editor]:pr-0 overflow-hidden dark border-t-4"
+        }
         value={value}
         autoFocus={true}
         basicSetup={{
@@ -151,6 +153,7 @@ const DebuggerControls: React.FC<{
         <Button
           variant="text"
           size="icon"
+          data-testid="debugger-next-button"
           className={cn(buttonClasses, "rounded-bl-lg")}
           onClick={() => onSubmit("n")}
         >
@@ -161,6 +164,7 @@ const DebuggerControls: React.FC<{
         <Button
           variant="text"
           size="icon"
+          data-testid="debugger-continue-button"
           onClick={() => onSubmit("c")}
           className={cn(
             buttonClasses,
@@ -174,6 +178,7 @@ const DebuggerControls: React.FC<{
         <Button
           variant="text"
           size="icon"
+          data-testid="debugger-stack-button"
           className={buttonClasses}
           onClick={() => onSubmit("bt")}
         >
@@ -184,6 +189,7 @@ const DebuggerControls: React.FC<{
         <Button
           variant="text"
           size="icon"
+          data-testid="debugger-help-button"
           className={buttonClasses}
           onClick={() => onSubmit("help")}
         >

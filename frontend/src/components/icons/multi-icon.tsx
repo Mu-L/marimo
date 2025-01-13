@@ -1,5 +1,5 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import React, { PropsWithChildren } from "react";
+import React, { type PropsWithChildren } from "react";
 
 import "./multi-icon.css";
 
@@ -17,8 +17,8 @@ export const MultiIcon = ({
 }: PropsWithChildren<MultiIconProps>) => {
   const [first, second] = React.Children.toArray(children);
   const positioning = layerTop
-    ? "top-[-1px] left-[-1px]"
-    : "bottom-[-1px] right-[-1px]";
+    ? "top-[-2px] left-[-2px]"
+    : "bottom-[-2px] right-[-2px]";
   return (
     <div className="multi-icon relative w-fit">
       {first}

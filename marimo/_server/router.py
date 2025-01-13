@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from asyncio import iscoroutine
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 
-from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
+    HTMLResponse,
     JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
     Response,
     StreamingResponse,
 )
@@ -17,6 +20,9 @@ from starlette.routing import Mount, Router
 
 from marimo import _loggers
 from marimo._server.models.base import deep_to_camel_case
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 LOGGER = _loggers.marimo_logger()
 
@@ -50,6 +56,14 @@ class APIRouter(Router):
                     return response
                 if isinstance(response, StreamingResponse):
                     return response
+                if isinstance(response, HTMLResponse):
+                    return response
+                if isinstance(response, PlainTextResponse):
+                    return response
+                if isinstance(response, RedirectResponse):
+                    return response
+                if isinstance(response, JSONResponse):
+                    return response
 
                 if dataclasses.is_dataclass(response):
                     return JSONResponse(
@@ -59,6 +73,9 @@ class APIRouter(Router):
                     )
 
                 return JSONResponse(content=json.dumps(response))
+
+            # Set docstring of wrapper_func to the docstring of func
+            wrapper_func.__doc__ = func.__doc__
 
             self.add_route(
                 path=self.prefix + path,
@@ -71,16 +88,47 @@ class APIRouter(Router):
         return decorator
 
     def get(
-        self, path: str, include_in_schema: bool = True
+        self,
+        path: str,
+        include_in_schema: bool = True,
+        name: Optional[str] = None,
     ) -> Callable[[DecoratedCallable], DecoratedCallable]:
         """Get method."""
 
         def decorator(func: DecoratedCallable) -> DecoratedCallable:
+            async def wrapper_func(request: Request) -> Response:
+                response = func(request=request)
+                if iscoroutine(response):
+                    response = await response
+                if isinstance(response, FileResponse):
+                    return response
+                if isinstance(response, StreamingResponse):
+                    return response
+                if isinstance(response, PlainTextResponse):
+                    return response
+                if isinstance(response, RedirectResponse):
+                    return response
+                if isinstance(response, HTMLResponse):
+                    return response
+
+                if dataclasses.is_dataclass(response):
+                    return JSONResponse(
+                        content=deep_to_camel_case(
+                            dataclasses.asdict(response)
+                        )
+                    )
+
+                return response  # type: ignore[no-any-return]
+
+            # Set docstring of wrapper_func to the docstring of func
+            wrapper_func.__doc__ = func.__doc__
+
             self.add_route(
                 path=self.prefix + path,
-                endpoint=func,
+                endpoint=wrapper_func,
                 methods=["GET"],
                 include_in_schema=include_in_schema,
+                name=name,
             )
             return func
 
@@ -118,11 +166,12 @@ class APIRouter(Router):
     ) -> None:
         """Include another router in this one."""
         # Merge Mounts with the same path
+        resolved_prefix = self.prefix + prefix
         for route in self.routes:
-            if isinstance(route, Mount) and route.path == prefix:
+            if isinstance(route, Mount) and route.path == resolved_prefix:
                 # NOTE: We don't merge middleware here, because it's not
                 # clear what the correct behavior is.
                 route.routes.extend(router.routes)
                 return
 
-        self.mount(path=self.prefix + prefix, app=router, name=name)
+        self.mount(path=resolved_prefix, app=router, name=name)

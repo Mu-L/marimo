@@ -3,9 +3,9 @@ import {
   isValueQuery,
   isAutoCountQuery,
 } from "compassql/build/src/query/encoding";
-import { SpecQuery } from "compassql/build/src/query/spec";
+import type { SpecQuery } from "compassql/build/src/query/spec";
 import { isWildcard } from "compassql/build/src/wildcard";
-import { EncodingChannel } from "../encoding";
+import type { EncodingChannel } from "../encoding";
 
 // This code is adapted and simplified from https://github.com/vega/voyager
 
@@ -51,7 +51,9 @@ export function hasWildcards(spec: SpecQuery): HasWildcard {
   for (const encQ of spec.encodings) {
     if (isValueQuery(encQ)) {
       continue;
-    } else if (isAutoCountQuery(encQ)) {
+    }
+
+    if (isAutoCountQuery(encQ)) {
       if (isWildcard(encQ.autoCount)) {
         hasWildcardFn = true;
       }
@@ -80,14 +82,4 @@ export function hasWildcards(spec: SpecQuery): HasWildcard {
     hasWildcardFn,
     hasWildcardChannel,
   };
-}
-
-export function removeUndefined<T>(obj: T): T {
-  const ret: T = {} as T;
-  for (const key in obj) {
-    if (obj[key] !== undefined) {
-      ret[key] = obj[key];
-    }
-  }
-  return ret;
 }

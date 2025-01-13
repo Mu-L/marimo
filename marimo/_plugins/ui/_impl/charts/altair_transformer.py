@@ -1,14 +1,22 @@
 # Copyright 2024 Marimo. All rights reserved.
-import json
-from typing import TYPE_CHECKING, Any, Dict, Literal, TypedDict, Union
+from __future__ import annotations
+
+import base64
+from typing import Any, Dict, Literal, TypedDict, Union
+
+import narwhals.stable.v1 as nw
+from narwhals.typing import IntoDataFrame
 
 import marimo._output.data.data as mo_data
+from marimo._dependencies.dependencies import DependencyManager
+from marimo._output.utils import build_data_url
+from marimo._plugins.ui._impl.tables.utils import (
+    get_table_manager,
+    get_table_manager_or_none,
+)
 
-if TYPE_CHECKING:
-    import pandas as pd
-
-Data = Union[Dict[Any, Any], "pd.DataFrame"]
-_DataType = Union[Dict[Any, Any], "pd.DataFrame"]
+Data = Union[Dict[Any, Any], IntoDataFrame, nw.DataFrame[Any]]
+_DataType = Union[Dict[Any, Any], IntoDataFrame, nw.DataFrame[Any]]
 
 
 class _JsonFormatDict(TypedDict):
@@ -51,6 +59,20 @@ def _to_marimo_csv(data: Data, **kwargs: Any) -> _ToCsvReturnUrlDict:
     return {"url": virtual_file.url, "format": {"type": "csv"}}
 
 
+def _to_marimo_inline_csv(data: Data, **kwargs: Any) -> _ToCsvReturnUrlDict:
+    """
+    Custom implementation of altair.utils.data.to_csv that
+    inlines the CSV data in the URL.
+    """
+    del kwargs
+    data_csv = _data_to_csv_string(data)
+    url = build_data_url(
+        mimetype="text/csv",
+        data=base64.b64encode(data_csv.encode("utf-8")),
+    )
+    return {"url": url, "format": {"type": "csv"}}
+
+
 # Copied from https://github.com/altair-viz/altair/blob/0ca83784e2455f2b84d0f6d789af2abbe8814348/altair/utils/data.py#L263C1-L288C10
 def _data_to_json_string(data: _DataType) -> str:
     """Return a JSON string representation of the input data"""
@@ -58,40 +80,38 @@ def _data_to_json_string(data: _DataType) -> str:
     import pandas as pd
 
     if isinstance(data, pd.DataFrame):
-        sanitized = alt.utils.sanitize_dataframe(data)
+        if "sanitize_pandas_dataframe" in dir(alt.utils):
+            sanitized = alt.utils.sanitize_pandas_dataframe(data)
+        elif "sanitize_dataframe" in dir(alt.utils):
+            sanitized = alt.utils.sanitize_dataframe(data)
+        else:
+            raise NotImplementedError(
+                "No sanitize_pandas_dataframe or "
+                "sanitize_dataframe in altair.utils."
+            )
         as_str = sanitized.to_json(orient="records", double_precision=15)
         assert isinstance(as_str, str)
         return as_str
-    elif isinstance(data, dict):
-        if "values" not in data:
-            raise KeyError("values expected in data dict, but not present.")
-        return json.dumps(data["values"], sort_keys=True)
-    else:
-        raise NotImplementedError(
-            "to_marimo_json only works with data expressed as a DataFrame "
-            + " or as a dict"
-        )
+
+    if DependencyManager.narwhals.has():
+        import narwhals
+
+        if isinstance(data, narwhals.DataFrame):
+            return _data_to_json_string(narwhals.to_native(data))
+
+    tm = get_table_manager_or_none(data)
+    if tm:
+        return tm.to_json().decode("utf-8")
+
+    raise NotImplementedError(
+        "to_marimo_json only works with data expressed as a DataFrame "
+        + " or as a dict. Got %s" % type(data)
+    )
 
 
 def _data_to_csv_string(data: _DataType) -> str:
     """Return a CSV string representation of the input data"""
-    import altair as alt
-    import pandas as pd
-
-    if isinstance(data, pd.DataFrame):
-        sanitized = alt.utils.sanitize_dataframe(data)
-        as_str = sanitized.to_csv(index=False, na_rep="null")
-        assert isinstance(as_str, str)
-        return as_str
-    elif isinstance(data, dict):
-        if "values" not in data:
-            raise KeyError("values expected in data dict, but not present")
-        return pd.DataFrame.from_dict(data["values"]).to_csv(index=False)
-    else:
-        raise NotImplementedError(
-            "to_marimo_csv only works with data expressed as a DataFrame"
-            + " or as a dict"
-        )
+    return get_table_manager(data).to_csv().decode("utf-8")
 
 
 def register_transformers() -> None:
@@ -113,8 +133,6 @@ def register_transformers() -> None:
     # Default to CSV. Due to the columnar nature of CSV, it is more efficient
     # than JSON for large datasets (~80% smaller file size).
     alt.data_transformers.register("marimo", _to_marimo_csv)
+    alt.data_transformers.register("marimo_inline_csv", _to_marimo_inline_csv)
     alt.data_transformers.register("marimo_json", _to_marimo_json)
-    alt.data_transformers.register(
-        "marimo_csv",
-        _to_marimo_csv,
-    )
+    alt.data_transformers.register("marimo_csv", _to_marimo_csv)

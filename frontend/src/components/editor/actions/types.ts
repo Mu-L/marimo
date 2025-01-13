@@ -1,5 +1,5 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { HotkeyAction } from "@/core/hotkeys/hotkeys";
+import type { HotkeyAction } from "@/core/hotkeys/hotkeys";
 
 /**
  * Shared interface to render a user action in the editor.
@@ -7,13 +7,21 @@ import { HotkeyAction } from "@/core/hotkeys/hotkeys";
  */
 export interface ActionButton {
   label: string;
-  variant?: "danger";
+  labelElement?: React.ReactNode;
+  description?: string;
+  disabled?: boolean;
+  tooltip?: React.ReactNode;
+  variant?: "danger" | "muted" | "disabled";
   disableClick?: boolean;
-  icon?: React.ReactNode;
+  icon?: React.ReactElement;
   hidden?: boolean;
   rightElement?: React.ReactNode;
   hotkey?: HotkeyAction;
   handle: (event?: Event) => void;
+  /**
+   * Special handler for headless contexts: e.g. a command palette.
+   */
+  handleHeadless?: (event?: Event) => void;
   divider?: boolean;
   dropdown?: ActionButton[];
 }
@@ -33,6 +41,10 @@ export function flattenActions(
   prevLabel = "",
 ): ActionButton[] {
   return actions.flatMap((action) => {
+    // If label is empty, hide
+    if (!action.label) {
+      return [];
+    }
     if (isParentAction(action)) {
       return flattenActions(action.dropdown, `${prevLabel + action.label} > `);
     }

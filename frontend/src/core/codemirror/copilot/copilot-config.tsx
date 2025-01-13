@@ -1,12 +1,13 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { useAtom } from "jotai";
-import { copilotSignedInState } from "./state";
+import { isGitHubCopilotSignedInState } from "./state";
 import { memo, useEffect, useState } from "react";
 import { getCopilotClient } from "./client";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { CheckIcon, CopyIcon, Loader2Icon, XIcon } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
+import { copyToClipboard } from "@/utils/copy";
 
 type Step =
   | "signedIn"
@@ -17,7 +18,9 @@ type Step =
   | "notConnected";
 
 export const CopilotConfig = memo(() => {
-  const [copilotSignedIn, copilotChangeSignIn] = useAtom(copilotSignedInState);
+  const [copilotSignedIn, copilotChangeSignIn] = useAtom(
+    isGitHubCopilotSignedInState,
+  );
   const [step, setStep] = useState<Step>();
 
   const [localData, setLocalData] = useState<{ url: string; code: string }>();
@@ -131,11 +134,11 @@ export const CopilotConfig = memo(() => {
                 <strong className="ml-2">{localData?.code}</strong>
                 <CopyIcon
                   className="ml-2 cursor-pointer opacity-60 hover:opacity-100 h-3 w-3"
-                  onClick={() => {
+                  onClick={async () => {
                     if (!localData) {
                       return;
                     }
-                    navigator.clipboard.writeText(localData.code);
+                    await copyToClipboard(localData.code);
                     toast({
                       description: "Copied to clipboard",
                     });
@@ -184,9 +187,11 @@ export const CopilotConfig = memo(() => {
 
       case "signedIn":
         return (
-          <div className="flex items-center justify-between">
-            <Label className="font-normal flex">
-              <CheckIcon className="h-4 w-4 mr-1" />
+          <div className="flex items-center gap-5">
+            <Label className="font-normal flex items-center">
+              <div className="inline-flex items-center justify-center bg-[var(--grass-7)] rounded-full p-1 mr-2">
+                <CheckIcon className="h-3 w-3 text-white" />
+              </div>
               Connected
             </Label>
             <Button onClick={signOut} size="xs" variant="text">

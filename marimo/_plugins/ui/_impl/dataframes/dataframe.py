@@ -3,30 +3,55 @@ from __future__ import annotations
 
 import inspect
 import sys
-from typing import TYPE_CHECKING, Any, Callable, Dict, Final, List, Optional
-
-if TYPE_CHECKING:
-    import pandas as pd
-
 from dataclasses import dataclass
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Final,
+    List,
+    Optional,
+    Union,
+)
 
-import marimo._output.data.data as mo_data
 from marimo._output.rich_help import mddoc
 from marimo._plugins.ui._core.ui_element import UIElement
-from marimo._plugins.ui._impl.utils.dataframe import get_row_headers
+from marimo._plugins.ui._impl.dataframes.transforms.apply import (
+    TransformsContainer,
+    get_handler_for_dataframe,
+)
+from marimo._plugins.ui._impl.dataframes.transforms.types import (
+    DataFrameType,
+    Transformations,
+)
+from marimo._plugins.ui._impl.table import (
+    SearchTableArgs,
+    SearchTableResponse,
+    SortArgs,
+)
+from marimo._plugins.ui._impl.tables.table_manager import (
+    FieldTypes,
+    TableManager,
+)
+from marimo._plugins.ui._impl.tables.utils import (
+    get_table_manager,
+)
+from marimo._plugins.validators import validate_no_integer_columns
 from marimo._runtime.functions import EmptyArgs, Function
+from marimo._utils.memoize import memoize_last_value
 from marimo._utils.parse_dataclass import parse_raw
-
-from .handlers import TransformsContainer
-from .transforms import Transformations
 
 
 @dataclass
 class GetDataFrameResponse:
     url: str
-    has_more: bool
     total_rows: int
-    row_headers: List[tuple[str, List[str | int | float]]]
+    # List of column names that are actually row headers
+    # This really only applies to Pandas, that has special index columns
+    row_headers: List[str]
+    field_types: FieldTypes
+    python_code: Optional[str] = None
+    sql_code: Optional[str] = None
 
 
 @dataclass
@@ -40,42 +65,56 @@ class GetColumnValuesResponse:
     too_many_values: bool
 
 
+class ColumnNotFound(Exception):
+    def __init__(self, column: str):
+        self.column = column
+        super().__init__(f"Column {column} does not exist")
+
+
+class GetDataFrameError(Exception):
+    def __init__(self, error: str):
+        self.error = error
+        super().__init__(error)
+
+
 @mddoc
-class dataframe(UIElement[Dict[str, Any], "pd.DataFrame"]):
-    """
-    Run transformations on a DataFrame or series.
-    Currently only Pandas DataFrames are supported.
+class dataframe(UIElement[Dict[str, Any], DataFrameType]):
+    """Run transformations on a DataFrame or series.
 
-    For Polars DataFrames, you can convert to a Pandas DataFrame.
-    However the returned DataFrame will still be a Pandas DataFrame,
-    so you will need to convert back to a Polars DataFrame if you want.
+    Currently only Pandas or Polars DataFrames are supported.
 
-    **Example.**
+    Examples:
+        ```python
+        dataframe = mo.ui.dataframe(data)
+        ```
 
-    ```python
-    dataframe = mo.ui.dataframe(data)
-    ```
+    Attributes:
+        value (DataFrameType): The transformed DataFrame or series.
 
-    ```python
-    dataframe = mo.ui.dataframe(polars_df.to_pandas())
-    ```
-
-    **Attributes.**
-
-    - `value`: the transformed DataFrame or series
-
-    **Initialization Args.**
-
-    - `df`: the DataFrame or series to transform
+    Args:
+        df (DataFrameType): The DataFrame or series to transform.
+        page_size (Optional[int], optional): The number of rows to show in the table.
+            Defaults to 5.
+        limit (Optional[int], optional): The number of items to load into memory, in case
+            the data is remote and lazily fetched. This is likely true for SQL-backed
+            dataframes via Ibis.
+        on_change (Optional[Callable[[DataFrameType], None]], optional): Optional callback
+            to run when this element's value changes.
     """
 
     _name: Final[str] = "marimo-dataframe"
 
     def __init__(
         self,
-        df: pd.DataFrame,
-        on_change: Optional[Callable[[pd.DataFrame], None]] = None,
+        df: DataFrameType,
+        on_change: Optional[Callable[[DataFrameType], None]] = None,
+        page_size: Optional[int] = 5,
+        limit: Optional[int] = None,
     ) -> None:
+        validate_no_integer_columns(df)
+        # This will raise an error if the dataframe type is not supported.
+        handler = get_handler_for_dataframe(df)
+
         # HACK: this is a hack to get the name of the variable that was passed
         dataframe_name = "df"
         try:
@@ -91,9 +130,17 @@ class dataframe(UIElement[Dict[str, Any], "pd.DataFrame"]):
         except Exception:
             pass
 
+        self._limit = limit
+        self._dataframe_name = dataframe_name
         self._data = df
-        self._transform_container = TransformsContainer(df)
+        self._handler = handler
+        self._manager = self._get_cached_table_manager(df, self._limit)
+        self._transform_container = TransformsContainer[DataFrameType](
+            df, handler
+        )
         self._error: Optional[str] = None
+        self._last_transforms = Transformations([])
+        self._page_size = page_size or 5  # Default to 5 rows (.head())
 
         super().__init__(
             component_name=dataframe._name,
@@ -103,53 +150,70 @@ class dataframe(UIElement[Dict[str, Any], "pd.DataFrame"]):
             on_change=on_change,
             label="",
             args={
-                "columns": df.dtypes.to_dict(),
+                "columns": self._get_column_types(),
                 "dataframe-name": dataframe_name,
-                "total": len(df),
+                "total": self._manager.get_num_rows(force=False),
+                "page-size": page_size,
             },
             functions=(
                 Function(
-                    name=self.get_dataframe.__name__,
+                    name="get_dataframe",
                     arg_cls=EmptyArgs,
-                    function=self.get_dataframe,
+                    function=self._get_dataframe,
                 ),
                 Function(
-                    name=self.get_column_values.__name__,
+                    name="get_column_values",
                     arg_cls=GetColumnValuesArgs,
-                    function=self.get_column_values,
+                    function=self._get_column_values,
+                ),
+                Function(
+                    name="search",
+                    arg_cls=SearchTableArgs,
+                    function=self._search,
                 ),
             ),
         )
 
-    def get_dataframe(self, _args: EmptyArgs) -> GetDataFrameResponse:
-        # Only get the first 100 (for performance reasons)
-        # Could make this configurable in the arguments later if desired.
-        LIMIT = 100
+    def _get_column_types(self) -> List[List[Union[str, int]]]:
+        return [
+            [name, dtype[0], dtype[1]]
+            for name, dtype in self._manager.get_field_types()
+        ]
 
+    def _get_dataframe(self, _args: EmptyArgs) -> GetDataFrameResponse:
         if self._error is not None:
-            raise Exception(self._error)
+            raise GetDataFrameError(self._error)
 
-        url = mo_data.csv(self._value.head(LIMIT)).url
-        total_rows = len(self._value)
+        manager = self._get_cached_table_manager(self._value, self._limit)
+        response = self._search(
+            SearchTableArgs(page_size=self._page_size, page_number=0)
+        )
         return GetDataFrameResponse(
-            url=url,
-            total_rows=total_rows,
-            has_more=total_rows > LIMIT,
-            row_headers=get_row_headers(self._value),
+            url=str(response.data),
+            total_rows=response.total_rows,
+            row_headers=manager.get_row_headers(),
+            field_types=manager.get_field_types(),
+            python_code=self._handler.as_python_code(
+                self._dataframe_name,
+                manager.get_column_names(),
+                self._last_transforms.transforms,
+            ),
+            sql_code=self._handler.as_sql_code(manager.data),
         )
 
-    def get_column_values(
+    def _get_column_values(
         self, args: GetColumnValuesArgs
     ) -> GetColumnValuesResponse:
         """Get all the unique values in a column."""
         LIMIT = 500
 
-        if args.column not in self._data.columns:
-            raise Exception("Column %s does not exist" % args.column)
+        columns = self._manager.get_column_names()
+        if args.column not in columns:
+            raise ColumnNotFound(args.column)
 
         # We get the unique values from the original dataframe, not the
         # transformed one
-        unique_values = self._data[args.column].unique().tolist()
+        unique_values = self._manager.get_unique_column_values(args.column)
         if len(unique_values) <= LIMIT:
             return GetColumnValuesResponse(
                 values=list(sorted(unique_values, key=str)),
@@ -161,7 +225,7 @@ class dataframe(UIElement[Dict[str, Any], "pd.DataFrame"]):
                 too_many_values=True,
             )
 
-    def _convert_value(self, value: Dict[str, Any]) -> pd.DataFrame:
+    def _convert_value(self, value: Dict[str, Any]) -> DataFrameType:
         if value is None:
             self._error = None
             return self._data
@@ -170,9 +234,50 @@ class dataframe(UIElement[Dict[str, Any], "pd.DataFrame"]):
             transformations = parse_raw(value, Transformations)
             result = self._transform_container.apply(transformations)
             self._error = None
+            self._last_transforms = transformations
             return result
         except Exception as e:
             error = "Error applying dataframe transform: %s\n\n" % str(e)
             sys.stderr.write(error)
             self._error = error
             return self._data
+
+    def _search(self, args: SearchTableArgs) -> SearchTableResponse:
+        offset = args.page_number * args.page_size
+
+        # Apply filters, query, and functools.sort using the cached method
+        result = self._apply_filters_query_sort(
+            args.query,
+            args.sort,
+        )
+
+        # Save the manager to be used for selection
+        data = result.take(args.page_size, offset).to_data()
+        return SearchTableResponse(
+            data=data,
+            total_rows=result.get_num_rows(force=True) or 0,
+        )
+
+    def _apply_filters_query_sort(
+        self,
+        query: Optional[str],
+        sort: Optional[SortArgs],
+    ) -> TableManager[Any]:
+        result = self._get_cached_table_manager(self._value, self._limit)
+
+        if query:
+            result = result.search(query)
+
+        if sort and sort.by in result.get_column_names():
+            result = result.sort_values(sort.by, sort.descending)
+
+        return result
+
+    @memoize_last_value
+    def _get_cached_table_manager(
+        self, value: Any, limit: Optional[int]
+    ) -> TableManager[Any]:
+        tm = get_table_manager(value)
+        if limit is not None:
+            tm = tm.take(limit, 0)
+        return tm

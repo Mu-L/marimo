@@ -1,12 +1,17 @@
 # Copyright 2024 Marimo. All rights reserved.
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from marimo._ast.cell import CellConfig, CellId_t
 from marimo._config.config import MarimoConfig
-from marimo._runtime.requests import ExecuteMultipleRequest, ExecutionRequest
+from marimo._runtime.requests import (
+    ExecuteMultipleRequest,
+    ExecuteScratchpadRequest,
+    RenameRequest,
+)
 
 UIElementId = str
 
@@ -14,17 +19,23 @@ UIElementId = str
 @dataclass
 class UpdateComponentValuesRequest:
     object_ids: List[UIElementId]
-    values: List[Union[str, bool, int, float, None]]
+    values: List[Any]
 
     def zip(
         self,
-    ) -> List[tuple[UIElementId, Union[str, bool, int, float, None]]]:
+    ) -> List[tuple[UIElementId, Any]]:
         return list(zip(self.object_ids, self.values))
+
+    # Validate same length
+    def __post_init__(self) -> None:
+        assert len(self.object_ids) == len(
+            self.values
+        ), "Mismatched object_ids and values"
 
 
 @dataclass
 class InstantiateRequest(UpdateComponentValuesRequest):
-    pass
+    auto_run: bool = True
 
 
 @dataclass
@@ -57,6 +68,9 @@ class ReadCodeResponse:
 class RenameFileRequest:
     filename: str
 
+    def as_execution_request(self) -> RenameRequest:
+        return RenameRequest(filename=os.path.abspath(self.filename))
+
 
 @dataclass
 class OpenFileRequest:
@@ -71,16 +85,25 @@ class RunRequest:
     codes: List[str]
 
     def as_execution_request(self) -> ExecuteMultipleRequest:
-        return ExecuteMultipleRequest(
-            execution_requests=[
-                ExecutionRequest(cell_id=cid, code=code)
-                for cid, code in zip(self.cell_ids, self.codes)
-            ]
-        )
+        return ExecuteMultipleRequest(cell_ids=self.cell_ids, codes=self.codes)
+
+    # Validate same length
+    def __post_init__(self) -> None:
+        assert len(self.cell_ids) == len(
+            self.codes
+        ), "Mismatched cell_ids and codes"
 
 
 @dataclass
-class SaveRequest:
+class RunScratchpadRequest:
+    code: str
+
+    def as_execution_request(self) -> ExecuteScratchpadRequest:
+        return ExecuteScratchpadRequest(code=self.code)
+
+
+@dataclass
+class SaveNotebookRequest:
     # id of each cell
     cell_ids: List[CellId_t]
     # code for each cell
@@ -93,6 +116,40 @@ class SaveRequest:
     filename: str
     # layout of app
     layout: Optional[Dict[str, Any]] = None
+    # persist the file to disk
+    persist: bool = True
+
+    # Validate same length
+    def __post_init__(self) -> None:
+        assert len(self.cell_ids) == len(
+            self.codes
+        ), "Mismatched cell_ids and codes"
+        assert len(self.cell_ids) == len(
+            self.names
+        ), "Mismatched cell_ids and names"
+        assert len(self.cell_ids) == len(
+            self.configs
+        ), "Mismatched cell_ids and configs"
+
+
+@dataclass
+class CopyNotebookRequest:
+    # path to app
+    source: str
+    destination: str
+
+    # Validate filenames are valid, and destination path does not already exist
+    def __post_init__(self) -> None:
+        destination = os.path.basename(self.destination)
+        assert self.source is not None
+        assert self.destination is not None
+        assert os.path.exists(self.source), (
+            f'File "{self.source}" does not exist.'
+            + "Please save the notebook and try again."
+        )
+        assert not os.path.exists(
+            self.destination
+        ), f'File "{destination}" already exists in this directory.'
 
 
 @dataclass

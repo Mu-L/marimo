@@ -5,7 +5,11 @@ from typing import Any, Dict, List, Tuple
 
 import pytest
 
-from marimo._utils.flatten import CyclicStructureError, flatten
+from marimo._utils.flatten import (
+    CyclicStructureError,
+    contains_instance,
+    flatten,
+)
 
 L = List[Any]
 T = Tuple[Any, ...]
@@ -189,3 +193,50 @@ def test_flatten_repeated_structure_does_not_raise() -> None:
     y = [x, x, x]
     # should not raise
     flatten(y)
+
+
+def test_flatten_custom_list() -> None:
+    class CustomList(list):
+        def __init__(self, extra_arg):
+            del extra_arg
+            super().__init__(())
+
+    custom_list = CustomList("data")
+    v, u = flatten(custom_list)
+    assert v == []
+    assert u(v) == []
+
+
+def test_contains_instance() -> None:
+    class A:
+        pass
+
+    class B:
+        pass
+
+    assert contains_instance([], A) is False
+    assert contains_instance([B()], A) is False
+    assert contains_instance([B(), A()], A) is True
+
+
+def test_contains_instance_nested() -> None:
+    class A:
+        pass
+
+    class B:
+        pass
+
+    assert contains_instance([{}], A) is False
+    assert contains_instance({"key": B()}, A) is False
+    assert contains_instance({"key": B()}, B) is True
+    assert contains_instance({"key": [B(), (B(), A())]}, A) is True
+
+
+def test_contains_instance_recursive() -> None:
+    class A:
+        pass
+
+    value: Any = [A()]
+    for _ in range(5):
+        value.append(value)
+    assert contains_instance(value, A) is True

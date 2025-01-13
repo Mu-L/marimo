@@ -7,11 +7,14 @@ from typing import Optional
 
 class HTTPStatus(IntEnum):
     OK = 200
+    NOT_MODIFIED = 304
     BAD_REQUEST = 400
     FORBIDDEN = 403
+    REQUEST_TIMEOUT = 408
     NOT_FOUND = 404
     METHOD_NOT_ALLOWED = 405
     UNSUPPORTED_MEDIA_TYPE = 415
+    PRECONDITION_REQUIRED = 428
     SERVER_ERROR = 500
 
 
@@ -23,3 +26,7 @@ class HTTPException(Exception):
     ) -> None:
         self.status_code = status_code
         self.detail = detail
+
+
+def is_client_error(status_code: int) -> bool:
+    return 400 <= status_code < 500

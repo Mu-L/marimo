@@ -2,7 +2,7 @@
 import { BarChartBigIcon } from "lucide-react";
 import React, { useState } from "react";
 import { PRIMITIVE_TYPE_ICON } from "./icons";
-import { Schema } from "compassql/build/src/schema";
+import type { Schema } from "compassql/build/src/schema";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/utils/cn";
 import {
@@ -84,6 +84,7 @@ export const ColumnSummary: React.FC<Props> = ({ schema }) => {
         })}
         {hasMore && (
           <Button
+            data-testid="marimo-plugin-data-explorer-show-more-columns"
             variant="link"
             size="sm"
             className="self-center col-span-3 -mt-1"
@@ -95,6 +96,7 @@ export const ColumnSummary: React.FC<Props> = ({ schema }) => {
       </div>
       <div className="lg:hidden">
         <Select
+          data-testid="marimo-plugin-data-explorer-column-select"
           value={selectedField || ""}
           disabled={fields.length === 0}
           onValueChange={(value) => {

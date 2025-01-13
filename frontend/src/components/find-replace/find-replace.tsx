@@ -3,8 +3,9 @@ import {
   findReplaceAtom,
   openFindReplacePanel,
 } from "@/core/codemirror/find-replace/state";
-import { useAtom } from "jotai";
-import React, { useEffect, useState } from "react";
+import { useAtom, useAtomValue } from "jotai";
+import type React from "react";
+import { useEffect, useState, useRef } from "react";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import {
@@ -25,13 +26,16 @@ import {
   XIcon,
 } from "lucide-react";
 import { useHotkey } from "@/hooks/useHotkey";
-import { EditorView } from "@codemirror/view";
+import type { EditorView } from "@codemirror/view";
 import { FocusScope } from "@react-aria/focus";
 import { toast } from "../ui/use-toast";
 import {
   clearGlobalSearchQuery,
   setGlobalSearchQuery,
 } from "@/core/codemirror/find-replace/search-highlight";
+import { KeyboardHotkeys } from "../shortcuts/renderShortcut";
+import { hotkeysAtom } from "@/core/config/config";
+import { UndoButton } from "../buttons/undo-button";
 
 export const FindReplace: React.FC = () => {
   const [isFocused, setIsFocused] = useState(false);
@@ -40,6 +44,8 @@ export const FindReplace: React.FC = () => {
     count: number;
     position: Map<EditorView, Map<string, number>>;
   }>();
+  const findInputRef = useRef<HTMLInputElement>(null);
+  const hotkeys = useAtomValue(hotkeysAtom);
 
   useHotkey("cell.findAndReplace", () => {
     // if already open and focused, fallback to default behavior
@@ -49,6 +55,13 @@ export const FindReplace: React.FC = () => {
 
     return openFindReplacePanel();
   });
+
+  useEffect(() => {
+    if (state.isOpen && findInputRef.current) {
+      findInputRef.current.focus(); // Focus the input
+      findInputRef.current.select(); // Select all text in the input
+    }
+  }, [state.isOpen]); // Depend on isOpen to trigger when the panel opens
 
   useEffect(() => {
     if (!state.isOpen) {
@@ -96,7 +109,7 @@ export const FindReplace: React.FC = () => {
           e.preventDefault();
         }}
         onBlur={() => setIsFocused(false)}
-        className="fixed top-0 right-0 w-[500px] flex flex-col bg-[var(--sage-1)] p-4 z-50 mt-2 mr-3 rounded-md shadow-lg border gap-2"
+        className="fixed top-0 right-0 w-[500px] flex flex-col bg-[var(--sage-1)] p-4 z-50 mt-2 mr-3 rounded-md shadow-lg border gap-2 print:hidden"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             dispatch({ type: "setIsOpen", isOpen: false });
@@ -105,6 +118,7 @@ export const FindReplace: React.FC = () => {
       >
         <div className="absolute top-0 right-0">
           <Button
+            data-testid="close-find-replace-button"
             onClick={() => dispatch({ type: "setIsOpen", isOpen: false })}
             size="xs"
             variant="text"
@@ -115,6 +129,8 @@ export const FindReplace: React.FC = () => {
         <div className="flex items-center gap-3">
           <div className="flex flex-col flex-2 gap-2 w-[55%]">
             <Input
+              ref={findInputRef} // Attach the ref here
+              data-testid="find-input"
               value={state.findText}
               autoFocus={true}
               className="mr-2 mb-0"
@@ -133,6 +149,7 @@ export const FindReplace: React.FC = () => {
               }}
             />
             <Input
+              data-testid="replace-input"
               value={state.replaceText}
               placeholder="Replace"
               onChange={(e) => {
@@ -184,6 +201,7 @@ export const FindReplace: React.FC = () => {
             </div>
             <div className="flex items-center gap-[2px]">
               <Button
+                data-testid="replace-next-button"
                 size="xs"
                 variant="outline"
                 className="h-6 text-xs"
@@ -193,6 +211,7 @@ export const FindReplace: React.FC = () => {
                 Replace Next
               </Button>
               <Button
+                data-testid="replace-all-button"
                 size="xs"
                 variant="outline"
                 className="h-6 text-xs"
@@ -206,16 +225,13 @@ export const FindReplace: React.FC = () => {
                   const { dismiss } = toast({
                     title: "Replaced all occurrences",
                     action: (
-                      <Button
-                        size="sm"
-                        variant="outline"
+                      <UndoButton
+                        data-testid="undo-replace-all-button"
                         onClick={() => {
                           undo();
                           dismiss();
                         }}
-                      >
-                        Undo
-                      </Button>
+                      />
                     ),
                   });
                 }}
@@ -228,12 +244,22 @@ export const FindReplace: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <Tooltip content="Find Previous">
-            <Button size="xs" variant="secondary" onClick={() => findPrev()}>
+            <Button
+              data-testid="find-prev-button"
+              size="xs"
+              variant="secondary"
+              onClick={() => findPrev()}
+            >
               <ArrowLeftIcon className="w-4 h-4" />
             </Button>
           </Tooltip>
           <Tooltip content="Find Next">
-            <Button size="xs" variant="secondary" onClick={() => findNext()}>
+            <Button
+              data-testid="find-next-button"
+              size="xs"
+              variant="secondary"
+              onClick={() => findNext()}
+            >
               <ArrowRightIcon className="w-4 h-4" />
             </Button>
           </Tooltip>
@@ -245,6 +271,13 @@ export const FindReplace: React.FC = () => {
               {currentMatch + 1} of {matches.count}
             </span>
           )}
+        </div>
+        <div className="text-xs text-muted-foreground flex gap-1 mt-2">
+          Press{" "}
+          <KeyboardHotkeys
+            shortcut={hotkeys.getHotkey("cell.findAndReplace").key}
+          />{" "}
+          again to open the native browser search.
         </div>
       </div>
     </FocusScope>

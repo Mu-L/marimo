@@ -22,6 +22,10 @@ describe("normalizeName", () => {
     expect(normalizeName("Some name 10")).toBe("some_name_10");
     expect(normalizeName("10 names")).toBe("_10_names");
   });
+
+  it("should remove special characters and not make lowercase", () => {
+    expect(normalizeName("Test Name!", false)).toBe("Test_Name_");
+  });
 });
 
 describe("getValidName", () => {
@@ -47,10 +51,12 @@ describe("getValidName", () => {
 describe("displayCellName", () => {
   it("should return the name if it is not the default cell name", () => {
     expect(displayCellName("custom_name", 1)).toBe("custom_name");
+    expect(displayCellName("__abcd", 0)).toBe("__abcd");
   });
 
   it("should return the HTML cell ID if the name is the default cell name", () => {
     expect(displayCellName(DEFAULT_CELL_NAME, 0)).toBe("cell-0");
     expect(displayCellName(DEFAULT_CELL_NAME, 1)).toBe("cell-1");
+    expect(displayCellName("__", 0)).toBe("cell-0");
   });
 });

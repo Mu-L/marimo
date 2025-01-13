@@ -2,12 +2,12 @@
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
-import { getUIElementObjectId, isUIElement } from "../../core/dom/UIElement";
+import { getUIElementObjectId, isUIElement } from "../../core/dom/ui-element";
 import {
-  marimoValueInputEvent,
-  MarimoValueInputEventType,
+  MarimoValueInputEvent,
+  type MarimoValueInputEventType,
 } from "@/core/dom/events";
-import { Setter } from "../types";
+import type { Setter } from "../types";
 import { Button } from "../../components/ui/button";
 import { UI_ELEMENT_REGISTRY } from "@/core/dom/uiregistry";
 import { cn } from "../../utils/cn";
@@ -170,6 +170,7 @@ export const FormWrapper = <T,>({
           {showClearButton &&
             withTooltip(
               <Button
+                data-testid="marimo-plugin-form-clear-button"
                 variant="text"
                 onClick={(e) => {
                   e.preventDefault();
@@ -182,6 +183,7 @@ export const FormWrapper = <T,>({
             )}
           {withTooltip(
             <Button
+              data-testid="marimo-plugin-form-submit-button"
               variant={variant}
               disabled={submitButtonDisabled || loading}
               type="submit"
@@ -245,9 +247,9 @@ const Form = ({
         setInternalValue(e.detail.value);
       }
     };
-    document.addEventListener(marimoValueInputEvent, handleUpdate);
+    document.addEventListener(MarimoValueInputEvent.TYPE, handleUpdate);
     return () => {
-      document.removeEventListener(marimoValueInputEvent, handleUpdate);
+      document.removeEventListener(MarimoValueInputEvent.TYPE, handleUpdate);
     };
   }, [elementId, setValue]);
 

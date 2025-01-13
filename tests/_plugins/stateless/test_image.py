@@ -1,12 +1,17 @@
 # Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
 import sys
 
 import pytest
 
+from marimo._dependencies.dependencies import DependencyManager
 from marimo._plugins.stateless.image import image
 from marimo._runtime.context import get_context
 from marimo._runtime.runtime import Kernel
 from tests.conftest import ExecReqProvider
+
+HAS_DEPS = DependencyManager.numpy.has() and DependencyManager.pillow.has()
 
 
 async def test_image() -> None:
@@ -66,12 +71,49 @@ async def test_image_str(k: Kernel, exec_req: ExecReqProvider) -> None:
     assert len(get_context().virtual_file_registry.registry) == 0
 
 
+@pytest.mark.skipif(not HAS_DEPS, reason="optional dependencies not installed")
+async def test_image_array(k: Kernel, exec_req: ExecReqProvider) -> None:
+    await k.run(
+        [
+            exec_req.get(
+                """
+                import marimo as mo
+                data = [[[255, 0, 0], [0, 255, 0], [0, 0, 255]]]
+                image = mo.image(data)
+                """
+            ),
+        ]
+    )
+    assert len(get_context().virtual_file_registry.registry) == 1
+    for fname, _ in get_context().virtual_file_registry.registry.items():
+        assert fname.endswith(".png")
+
+
+@pytest.mark.skipif(not HAS_DEPS, reason="optional dependencies not installed")
+async def test_image_numpy(k: Kernel, exec_req: ExecReqProvider) -> None:
+    await k.run(
+        [
+            exec_req.get(
+                """
+                import marimo as mo
+                import numpy as np
+                data = np.random.rand(10, 10)
+                image = mo.image(data)
+                """
+            ),
+        ]
+    )
+    assert len(get_context().virtual_file_registry.registry) == 1
+    for fname, _ in get_context().virtual_file_registry.registry.items():
+        assert fname.endswith(".png")
+
+
 # TODO(akshayka): Debug on Windows
 @pytest.mark.skipif(sys.platform == "win32", reason="Failing on Windows CI")
 async def test_image_local_file(k: Kernel, exec_req: ExecReqProvider) -> None:
     # Just opens a file that exists, and make sure it gets registered
     # in the virtual path registry
-    with open(__file__, encoding="utf-8") as f:
+    with open(__file__, encoding="utf-8") as f:  # noqa: ASYNC101 ASYNC230
         await k.run(
             [
                 exec_req.get(

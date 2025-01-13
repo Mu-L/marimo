@@ -1,6 +1,7 @@
 # Copyright 2024 Marimo. All rights reserved.
 from __future__ import annotations
 
+from marimo._runtime import output
 from tests.conftest import ExecReqProvider, MockedKernel
 
 
@@ -65,3 +66,43 @@ async def test_mutating_appended_outputs(
     assert "before" in outputs[0]
     assert "before" in outputs[1]
     assert "after" in outputs[1]
+
+
+async def test_nested_output(
+    mocked_kernel: MockedKernel, exec_req: ExecReqProvider
+) -> None:
+    await mocked_kernel.k.run(
+        [
+            exec_req.get(
+                """
+                breaker = ["hi"]
+                for i in range(5):
+                    breaker.append(breaker)
+                breaker
+                """
+            )
+        ]
+    )
+    outputs: list[str] = []
+    for msg in mocked_kernel.stream.messages:
+        if msg[0] == "cell-op" and msg[1]["output"] is not None:
+            outputs.append(msg[1]["output"]["data"])
+    assert len(outputs) == 1
+    assert outputs[0] == "['hi', [...], [...], [...], [...], [...]]"
+
+
+def test_without_context():
+    from marimo._runtime.context import get_context
+    from marimo._runtime.context.types import ContextNotInitializedError
+
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
+        ctx = None
+
+    assert ctx is None
+    output.replace("test")
+    output.replace_at_index("test", 0)
+    output.append("test")
+    output.clear()
+    assert True  # No exceptions should be raised

@@ -5,7 +5,7 @@ import functools
 from typing import Any, Callable
 
 from marimo._messaging.mimetypes import KnownMimeType
-from marimo._output import builder
+from marimo._output.builder import h
 from marimo._output.formatters.formatter_factory import FormatterFactory
 
 
@@ -39,18 +39,18 @@ class IPythonFormatter(FormatterFactory):
         def unpatch() -> None:
             IPython.display.display = old_display
 
-        @formatting.formatter(IPython.display.HTML)
+        @formatting.formatter(
+            IPython.display.HTML  # type:ignore
+        )
         def _format_html(
-            html: IPython.display.HTML,
+            html: IPython.display.HTML,  # type:ignore
         ) -> tuple[KnownMimeType, str]:
             if html.url is not None:
                 # TODO(akshayka): resize iframe not working
-                data = builder.h.iframe(
+                data = h.iframe(
                     src=html.url,
-                    width="100%",
                     onload="__resizeIframe(this)",
-                    scrolling="auto",
-                    frameborder="0",
+                    width="100%",
                 )
             else:
                 data = str(html._repr_html_())  # type: ignore

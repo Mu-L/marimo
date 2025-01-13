@@ -2,28 +2,32 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 from starlette.authentication import requires
 from starlette.exceptions import HTTPException
-from starlette.requests import Request
+from starlette.responses import PlainTextResponse
 
 from marimo import _loggers
 from marimo._ast import codegen
 from marimo._server.api.deps import AppState
 from marimo._server.api.status import HTTPStatus
 from marimo._server.api.utils import parse_request
-from marimo._server.model import SessionMode
+from marimo._server.ids import ConsumerId
 from marimo._server.models.models import (
     BaseResponse,
+    CopyNotebookRequest,
     OpenFileRequest,
     ReadCodeResponse,
     RenameFileRequest,
     SaveAppConfigurationRequest,
-    SaveRequest,
+    SaveNotebookRequest,
     SuccessResponse,
 )
-from marimo._server.print import print_startup
 from marimo._server.router import APIRouter
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 LOGGER = _loggers.marimo_logger()
 
@@ -37,9 +41,26 @@ async def read_code(
     *,
     request: Request,
 ) -> ReadCodeResponse:
+    """
+    responses:
+        200:
+            description: Read the code from the server
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/ReadCodeResponse"
+        400:
+            description: File must be saved before downloading
+    """
     app_state = AppState(request)
-    """Handler for reading code from the server."""
     session = app_state.require_current_session()
+
+    if not session.app_file_manager.path:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail="File must be saved before downloading",
+        )
+
     contents = session.app_file_manager.read_file()
 
     return ReadCodeResponse(contents=contents)
@@ -51,14 +72,37 @@ async def rename_file(
     *,
     request: Request,
 ) -> BaseResponse:
-    """Rename the current app."""
+    """
+    requestBody:
+        content:
+            application/json:
+                schema:
+                    $ref: "#/components/schemas/RenameFileRequest"
+    responses:
+        200:
+            description: Rename the current app
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/SuccessResponse"
+    """
     body = await parse_request(request, cls=RenameFileRequest)
     app_state = AppState(request)
-    mgr = app_state.session_manager
     session = app_state.require_current_session()
+    prev_path = session.app_file_manager.path
 
     session.app_file_manager.rename(body.filename)
-    mgr.rename(body.filename)
+    new_path = session.app_file_manager.path
+
+    if prev_path and new_path:
+        app_state.session_manager.recents.rename(prev_path, new_path)
+    elif new_path:
+        app_state.session_manager.recents.touch(new_path)
+
+    app_state.require_current_session().put_control_request(
+        body.as_execution_request(),
+        from_consumer_id=ConsumerId(app_state.require_current_session_id()),
+    )
 
     return SuccessResponse()
 
@@ -69,8 +113,22 @@ async def open_file(
     *,
     request: Request,
 ) -> BaseResponse:
-    """Open a file."""
-    app_state = AppState(request)
+    """
+    requestBody:
+        content:
+            application/json:
+                schema:
+                    $ref: "#/components/schemas/OpenFileRequest"
+    responses:
+        200:
+            description: Open a file
+            content:
+                application/json:
+                    schema:
+                        $ref: "#/components/schemas/SuccessResponse"
+        400:
+            description: File does not exist
+    """
     body = await parse_request(request, cls=OpenFileRequest)
 
     # Validate file exists
@@ -96,16 +154,6 @@ async def open_file(
             detail=f"Failed to read file: {str(e)}",
         ) from e
 
-    mgr = app_state.session_manager
-    mgr.rename(filename)
-    host = app_state.host
-    port = app_state.port
-    base_url = app_state.base_url
-    run = app_state.mode == SessionMode.RUN
-    print_startup(
-        filename=filename, url=f"http://{host}:{port}{base_url}", run=run
-    )
-
     return SuccessResponse()
 
 
@@ -114,18 +162,55 @@ async def open_file(
 async def save(
     *,
     request: Request,
-) -> BaseResponse:
-    """Save the current app."""
+) -> PlainTextResponse:
+    """
+    requestBody:
+        content:
+            application/json:
+                schema:
+                    $ref: "#/components/schemas/SaveNotebookRequest"
+    responses:
+        200:
+            description: Save the current app
+            content:
+                text/plain:
+                    schema:
+                        type: string
+    """
     app_state = AppState(request)
-    mgr = app_state.session_manager
-    body = await parse_request(request, cls=SaveRequest)
+    body = await parse_request(request, cls=SaveNotebookRequest)
     session = app_state.require_current_session()
-    session.app_file_manager.save(body)
+    contents = session.app_file_manager.save(body)
 
-    if mgr.filename is None:
-        mgr.rename(body.filename)
+    return PlainTextResponse(content=contents)
 
-    return SuccessResponse()
+
+@router.post("/copy")
+@requires("edit")
+async def copy(
+    *,
+    request: Request,
+) -> PlainTextResponse:
+    """
+    requestBody:
+        content:
+            application/json:
+                schema:
+                    $ref: "#/components/schemas/CopyNotebookRequest"
+    responses:
+        200:
+            description: Copy notebook
+            content:
+                text/plain:
+                    schema:
+                        type: string
+    """
+    app_state = AppState(request)
+    body = await parse_request(request, cls=CopyNotebookRequest)
+    session = app_state.require_current_session()
+    contents = session.app_file_manager.copy(body)
+
+    return PlainTextResponse(content=contents)
 
 
 @router.post("/save_app_config")
@@ -133,11 +218,24 @@ async def save(
 async def save_app_config(
     *,
     request: Request,
-) -> BaseResponse:
-    """Save the current app."""
+) -> PlainTextResponse:
+    """
+    requestBody:
+        content:
+            application/json:
+                schema:
+                    $ref: "#/components/schemas/SaveAppConfigurationRequest"
+    responses:
+        200:
+            description: Save the app configuration
+            content:
+                text/plain:
+                    schema:
+                        type: string
+    """
     app_state = AppState(request)
     body = await parse_request(request, cls=SaveAppConfigurationRequest)
     session = app_state.require_current_session()
-    session.app_file_manager.save_app_config(body.config)
+    contents = session.app_file_manager.save_app_config(body.config)
 
-    return SuccessResponse()
+    return PlainTextResponse(content=contents)

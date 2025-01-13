@@ -1,13 +1,7 @@
 # Justify
 
-```{eval-rst}
-.. autofunction:: marimo.center
-```
+::: marimo.center
 
-```{eval-rst}
-.. autofunction:: marimo.left
-```
+::: marimo.left
 
-```{eval-rst}
-.. autofunction:: marimo.right
-```
+::: marimo.right

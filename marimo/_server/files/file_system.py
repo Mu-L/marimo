@@ -1,6 +1,8 @@
 # Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from marimo._server.models.files import FileDetailsResponse, FileInfo
 
@@ -30,9 +32,9 @@ class FileSystem(ABC):
     def create_file_or_directory(
         self,
         path: str,
-        file_type: str,
+        file_type: Literal["file", "directory"],
         name: str,
-        contents: Optional[str],
+        contents: Optional[bytes],
     ) -> FileInfo:
         """
         Create a new file or directory
@@ -47,6 +49,11 @@ class FileSystem(ABC):
         pass
 
     @abstractmethod
-    def update_file_or_directory(self, path: str, new_path: str) -> FileInfo:
+    def move_file_or_directory(self, path: str, new_path: str) -> FileInfo:
         """Rename or move a file or directory."""
+        pass
+
+    @abstractmethod
+    def update_file(self, path: str, contents: str) -> FileInfo:
+        """Update the contents of a file."""
         pass

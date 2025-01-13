@@ -50,6 +50,16 @@ export const Objects = {
     return result;
   },
   /**
+   * Collect
+   */
+  collect<T, V, K extends string | number = string>(
+    items: T[],
+    key: (item: NoInfer<T>) => K,
+    mapper: (item: NoInfer<T>) => V,
+  ): Record<K, V> {
+    return Objects.mapValues(Objects.keyBy(items, key), mapper);
+  },
+  /**
    * Type-safe groupBy
    */
   groupBy<T, K extends string | number, V>(
@@ -83,5 +93,13 @@ export const Objects = {
       }
     }
     return result;
+  },
+
+  omit<V extends object, K extends keyof V>(
+    obj: V,
+    keys: K[] | Set<K>,
+  ): Partial<V> {
+    const set = new Set<K>(keys);
+    return Objects.filter(obj, (_, key) => !set.has(key));
   },
 };

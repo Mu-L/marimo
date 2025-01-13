@@ -1,18 +1,24 @@
 # Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
 import abc
 from enum import Enum
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
-from marimo._messaging.ops import MessageOperation
-from marimo._messaging.types import KernelMessage
+from marimo._server.ids import ConsumerId
+
+if TYPE_CHECKING:
+    from marimo._messaging.ops import MessageOperation
+    from marimo._messaging.types import KernelMessage
 
 
 class ConnectionState(Enum):
     """Connection state for a session"""
 
-    OPEN = 0
-    CLOSED = 1
-    ORPHANED = 2
+    CONNECTING = 0
+    OPEN = 1
+    CLOSED = 2
+    ORPHANED = 3
 
 
 class SessionMode(str, Enum):
@@ -32,10 +38,12 @@ class SessionConsumer(metaclass=abc.ABCMeta):
     connection types. Currently we consume a session via WebSocket
     """
 
+    def __init__(self, consumer_id: ConsumerId) -> None:
+        self.consumer_id = consumer_id
+
     @abc.abstractmethod
     def on_start(
         self,
-        check_alive: Callable[[], None],
     ) -> Callable[[KernelMessage], None]:
         """
         Start the session consumer
@@ -48,7 +56,7 @@ class SessionConsumer(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def write_operation(self, op: MessageOperation) -> None:
+    def write_operation(self, op: MessageOperation) -> None:
         raise NotImplementedError
 
     @abc.abstractmethod

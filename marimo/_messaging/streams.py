@@ -7,12 +7,20 @@ import os
 import sys
 import threading
 from collections import deque
-from typing import Any, Iterable, Iterator, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    Iterator,
+    Optional,
+    Protocol,
+)
 
 from marimo import _loggers
 from marimo._ast.cell import CellId_t
 from marimo._messaging.cell_output import CellChannel
 from marimo._messaging.console_output_worker import ConsoleMsg, buffered_writer
+from marimo._messaging.mimetypes import KnownMimeType
 from marimo._messaging.types import (
     KernelMessage,
     Stderr,
@@ -21,7 +29,9 @@ from marimo._messaging.types import (
     Stream,
 )
 from marimo._server.types import QueueType
-from marimo._utils.typed_connection import TypedConnection
+
+if TYPE_CHECKING:
+    import queue
 
 LOGGER = _loggers.marimo_logger()
 
@@ -51,12 +61,25 @@ OUTPUT_MAX_BYTES = int(os.getenv("MARIMO_OUTPUT_MAX_BYTES", 5_000_000))
 STD_STREAM_MAX_BYTES = int(os.getenv("MARIMO_STD_STREAM_MAX_BYTES", 1_000_000))
 
 
+class PipeProtocol(Protocol):
+    def send(self, obj: Any) -> None:
+        pass
+
+
+class QueuePipe:
+    def __init__(self, queue: queue.Queue[KernelMessage]):
+        self._queue = queue
+
+    def send(self, obj: Any) -> None:
+        self._queue.put_nowait(obj)
+
+
 class ThreadSafeStream(Stream):
     """A thread-safe wrapper around a pipe."""
 
     def __init__(
         self,
-        pipe: TypedConnection[KernelMessage],
+        pipe: PipeProtocol,
         input_queue: QueueType[str],
         cell_id: Optional[CellId_t] = None,
     ):
@@ -178,7 +201,7 @@ class ThreadSafeStdout(Stdout):
         # TODO(akshayka): maybe force the buffered writer to write
         return
 
-    def write(self, data: str) -> int:
+    def _write_with_mimetype(self, data: str, mimetype: KnownMimeType) -> int:
         assert self._stream.cell_id is not None
         if not isinstance(data, str):
             raise TypeError(
@@ -194,6 +217,7 @@ class ThreadSafeStdout(Stdout):
                 stream=CellChannel.STDOUT,
                 cell_id=self._stream.cell_id,
                 data=data,
+                mimetype=mimetype,
             )
         )
         with self._stream.console_msg_cv:
@@ -237,7 +261,7 @@ class ThreadSafeStderr(Stderr):
         # TODO(akshayka): maybe force the buffered writer to write
         return
 
-    def write(self, data: str) -> int:
+    def _write_with_mimetype(self, data: str, mimetype: KnownMimeType) -> int:
         assert self._stream.cell_id is not None
         if not isinstance(data, str):
             raise TypeError(
@@ -256,6 +280,7 @@ class ThreadSafeStderr(Stderr):
                     stream=CellChannel.STDERR,
                     cell_id=self._stream.cell_id,
                     data=data,
+                    mimetype=mimetype,
                 )
             )
             self._stream.console_msg_cv.notify()
@@ -307,6 +332,7 @@ class ThreadSafeStdin(Stdin):
                     stream=CellChannel.STDIN,
                     cell_id=self._stream.cell_id,
                     data=prompt,
+                    mimetype="text/plain",
                 )
             )
             self._stream.console_msg_cv.notify()

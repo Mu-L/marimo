@@ -1,10 +1,15 @@
-name: Publish dev release
+name: Publish dev release of marimo-base
 
 # Publish development release to test pypi on pushes to main
 on:
   push:
     branches:
       - main
+
+env:
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: marimo
+
 jobs:
   publish_dev_release:
     name: 📤 Publish dev release
@@ -25,26 +30,26 @@ jobs:
 
       - uses: pnpm/action-setup@v2
         with:
-          version: 8
+          version: 9
 
       - name: ⎔ Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
-          cache: "pnpm"
-          cache-dependency-path: "**/pnpm-lock.yaml"
-          registry-url: "https://registry.npmjs.org"
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: '**/pnpm-lock.yaml'
+          registry-url: 'https://registry.npmjs.org'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: 📦 Build frontend
         run: make fe
 
-      - name: 🐍 Setup Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-          cache: "pip"
+      - name: 🥚 Install Hatch
+        uses: pypa/hatch@install
+
+      - name: Adapt pyproject.toml to build marimo-base
+        run: ./scripts/modify_pyproject_for_marimo_base.sh
 
       # patch __init__.py version to be of the form
       # X.Y.<Z+1>-dev{n-commits-since-last-tag}
@@ -63,17 +68,16 @@ jobs:
           sed -i "s/__version__ = \".*\"/__version__ = \"$MARIMO_VERSION\"/" marimo/__init__.py
 
       - name: 📦 Build marimo
-        run: |
-          python -m pip install --upgrade pip
-          pip install build twine
-          pip install .
-          python -m build
+        run: hatch build --clean
+
+      - name: 📦 Validate wheel under 2mb
+        run: ./scripts/validate_base_wheel_size.sh
 
       - name: 📤 Upload to TestPyPI
         env:
-          TWINE_USERNAME: ${{ secrets.TEST_PYPI_USER }}
-          TWINE_PASSWORD: ${{ secrets.TEST_PYPI_PASSWORD }}
-        run: twine upload --repository testpypi --skip-existing dist/*
+          HATCH_INDEX_USER: ${{ secrets.TEST_PYPI_USER }}
+          HATCH_INDEX_AUTH: ${{ secrets.TEST_PYPI_MARIMO_BASE_PASSWORD }}
+        run: hatch publish --repo test
 
       - name: 📦 Update package.json version from CLI
         working-directory: frontend
@@ -81,12 +85,46 @@ jobs:
           echo "Updating package.json version to ${{ env.MARIMO_VERSION }}"
           npm version ${{ env.MARIMO_VERSION }} --no-git-tag-version
 
-      - name: 📤 Upload to npm
+      - name: 📤 Upload wasm to npm
         working-directory: frontend
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: |
+          for i in {1..3}; do
+            npm publish --access public && break || {
+              echo "Publish attempt $i failed, retrying..."
+              sleep 10
+            }
+          done
+
+      - name: 📦 Update package.json name to @marimo-team/islands
+        working-directory: frontend
+        run: |
+          sed -i 's/"name": "@marimo-team\/frontend"/"name": "@marimo-team\/islands"/' package.json
+
+      - name: 📦 Rebuild frontend
+        working-directory: frontend
+        env:
+          NODE_ENV: production
+          VITE_MARIMO_ISLANDS: 'true'
+          VITE_MARIMO_VERSION: ${{ env.MARIMO_VERSION }}
+        run: |
+          pnpm turbo build:islands
+          ./islands/validate.sh
+
+      - name: 📤 Upload islands to npm
+        working-directory: frontend
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for i in {1..3}; do
+            npm publish --access public && break || {
+              echo "Publish attempt $i failed, retrying..."
+              sleep 10
+            }
+          done
 
       - name: 📝 Comment PR
         uses: actions/github-script@v7
@@ -95,15 +133,19 @@ jobs:
           script: |
             try {
               const pullRequest = await github.rest.search.issuesAndPullRequests({
-                q: context.sha
+                q: `sha:${context.sha} is:pr is:merged`
               });
 
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pullRequest.data.items[0].number,
-                body: '🚀 Development release published. You may be able to view the changes at https://marimo.app?v${{ env.MARIMO_VERSION }}'
-              });
+              if (pullRequest.data.items.length > 0) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullRequest.data.items[0].number,
+                  body: `🚀 Development release published. You may be able to view the changes at https://marimo.app?v=${process.env.MARIMO_VERSION}`
+                });
+              } else {
+                console.log("No merged PR found for this SHA.");
+              }
             } catch (err) {
-              // ignore
+              console.error(err);
             }

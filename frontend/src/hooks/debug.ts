@@ -1,6 +1,6 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 /* eslint-disable react-hooks/rules-of-hooks */
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import { dequal } from "dequal";
 import { Logger } from "@/utils/Logger";
 
@@ -16,9 +16,9 @@ export function useDebugMounting(name: string) {
   const renders = useRef(0);
 
   useEffect(() => {
-    Logger.debug(`[${name}] mounted`);
+    Logger.debug(`🐛 [${name}] mounted`);
     return () => {
-      Logger.debug(`[${name}] unmounted. Renders: ${renders.current}`);
+      Logger.debug(`🐛 [${name}] unmounted. Renders: ${renders.current}`);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -49,20 +49,67 @@ export function usePropsDidChange(
       return prevProps.current[key] !== props[key];
     });
 
-    // If any props are deeply equal, we should warn about it
     const equalKeys = changedKeys.filter((key) => {
       return dequal(prevProps.current[key], props[key]);
     });
 
     if (changedKeys.length > 0) {
       Logger.debug(`[${name}] Props changed: ${changedKeys.join(", ")}`);
-      if (equalKeys.length > 0) {
+
+      // If all changed keys are deeply equal, we should warn about it
+      if (equalKeys.length === changedKeys.length) {
         Logger.debug(
-          `[${name}] Props are deeply equal: ${equalKeys.join(", ")}`,
+          `[${name}] ⚠️ Props are deeply equal: ${equalKeys.join(", ")}`,
         );
       }
     }
 
     prevProps.current = props;
   });
+}
+
+/**
+ * Like useMemo, but logs when the value changes.
+ */
+export function useMemoDebugChanges<T>(
+  name: string,
+  fn: () => T,
+  deps: unknown[],
+) {
+  if (process.env.NODE_ENV !== "development") {
+    return fn();
+  }
+
+  const previousDeps = useRef<unknown[]>([]);
+
+  return useMemo(() => {
+    if (previousDeps.current.length === 0) {
+      previousDeps.current = deps;
+      return fn();
+    }
+
+    const changedIndices: number[] = [];
+    const changedDeps = deps.filter((dep, idx) => {
+      if (!dequal(dep, previousDeps.current[idx])) {
+        changedIndices.push(idx);
+        return true;
+      }
+      return false;
+    });
+
+    if (changedDeps.length > 0) {
+      Logger.debug(
+        `[${name}] Memo deps changed at indices: ${changedIndices}`,
+        {
+          previous: previousDeps.current,
+          current: deps,
+        },
+      );
+    }
+
+    previousDeps.current = deps;
+
+    return fn();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
 }

@@ -1,17 +1,19 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { CompletionResult } from "@codemirror/autocomplete";
+import type { CompletionResult } from "@codemirror/autocomplete";
 
-import {
+import type {
   CompletionOption,
   CompletionResultMessage,
 } from "../../kernel/messages";
 import { sendCodeCompletionRequest } from "@/core/network/requests";
-import { Tooltip } from "@codemirror/view";
+import type { Tooltip } from "@codemirror/view";
 import { DeferredRequestRegistry } from "@/core/network/DeferredRequestRegistry";
-import { CodeCompletionRequest } from "@/core/network/types";
+import type { CodeCompletionRequest } from "@/core/network/types";
 import "../../../components/editor/documentation.css";
 
-function constructCompletionInfoNode(innerHtml?: string): HTMLElement | null {
+function constructCompletionInfoNode(
+  innerHtml?: string | null,
+): HTMLElement | null {
   if (!innerHtml) {
     return null;
   }
@@ -77,7 +79,7 @@ export const Autocompleter = {
     limitToType?: "tooltip";
     excludeTypes?: string[];
     exactName?: string;
-  }): (Tooltip & { html?: string }) | undefined {
+  }): (Tooltip & { html?: string | null }) | undefined {
     const firstOption = getFirstOption(message.options, exactName);
     if (!firstOption) {
       return undefined;
@@ -93,7 +95,7 @@ export const Autocompleter = {
       return;
     }
 
-    if (excludeTypes && excludeTypes.includes(firstOption.type)) {
+    if (excludeTypes?.includes(firstOption.type)) {
       return;
     }
 
@@ -113,10 +115,12 @@ function getFirstOption(
 ): CompletionOption | undefined {
   if (options.length === 0) {
     return undefined;
-  } else if (options.length === 1) {
+  }
+  if (options.length === 1) {
     // One option
     return options[0];
-  } else if (tieBreak) {
+  }
+  if (tieBreak) {
     // Tie break to a matching name
     return options.find((option) => option.name === tieBreak);
   }

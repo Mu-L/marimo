@@ -1,7 +1,8 @@
 # Copyright 2024 Marimo. All rights reserved.
+
 import marimo
 
-__generated_with = "0.1.69"
+__generated_with = "0.9.30"
 app = marimo.App()
 
 
@@ -17,7 +18,27 @@ def __(mo):
 
         To provide reactive execution, marimo creates a dataflow graph out of your
         cells.
-    """
+        """
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def __(mo):
+    mo.md(
+        r"""
+        **Tip: disabling automatic execution.**
+
+        marimo lets you disable automatic execution: just go into the notebook settings
+        and set
+
+        "Runtime > On Cell Change" to "lazy".
+
+        When the runtime is lazy, after running a cell, marimo marks its
+        descendants as stale instead of automatically running them. The lazy
+        runtime puts you in control over when cells are run, while still giving
+        guarantees about the notebook state.
+        """
     )
     return
 
@@ -31,7 +52,7 @@ def __(mo):
         A marimo notebook is a directed acyclic graph in which nodes represent 
         cells and edges represent data dependencies. marimo creates this graph by
         analyzing each cell (without running it) to determine its
-        
+
         - references ("refs*), the global variables it reads but doesn't define;
         - definitions ("defs"), the global variables it defines.
 
@@ -50,10 +71,10 @@ def __(mo):
     mo.md(
         """
         ### Example
-        
+
         The next four cells plot a sine wave with a given period and amplitude.
-        Each cell is labeled with its refs and defs.    
-        """ 
+        Each cell is labeled with its refs and defs.
+        """
     )
     return
 
@@ -98,7 +119,7 @@ def __(mo):
         - `defs: {mo.defs()}`
         """
     )
-    return period,
+    return (period,)
 
 
 @app.cell
@@ -111,7 +132,7 @@ def __(mo):
         - `defs: {mo.defs()}`
         """
     )
-    return amplitude,
+    return (amplitude,)
 
 
 @app.cell
@@ -143,7 +164,7 @@ def __(matplotlib_installed, mo, np, numpy_installed, plt):
         - `defs: {mo.defs()}`
         """
     )
-    return plot_wave,
+    return (plot_wave,)
 
 
 @app.cell(hide_code=True)
@@ -181,7 +202,7 @@ def __(mo):
               +------------> | {} | <-------------+
                              +----+
         ```
-        
+
         The last cell, which doesn't define anything, produces the plot.
         """
     )
@@ -238,14 +259,14 @@ def __(mo):
 def __():
     planet = "Mars"
     planet
-    return planet,
+    return (planet,)
 
 
 @app.cell
 def __():
     planet = "Earth"
     planet
-    return planet,
+    return (planet,)
 
 
 @app.cell(hide_code=True)
@@ -277,13 +298,13 @@ def __(mo):
 @app.cell
 def __():
     count = 0
-    return count,
+    return (count,)
 
 
 @app.cell
 def __():
     count += 1
-    return count,
+    return (count,)
 
 
 @app.cell(hide_code=True)
@@ -350,7 +371,7 @@ def __(mo):
         Delete this cell by clicking the trash bin icon.
         """
     )
-    return to_be_deleted,
+    return (to_be_deleted,)
 
 
 @app.cell
@@ -374,13 +395,13 @@ def __(mo):
 @app.cell
 def __(two):
     one = two - 1
-    return one,
+    return (one,)
 
 
 @app.cell
 def __(one):
     two = one + 1
-    return two,
+    return (two,)
 
 
 @app.cell(hide_code=True)
@@ -494,7 +515,8 @@ def __(mo, tips):
 @app.cell(hide_code=True)
 def __(mo):
     mo.md(
-        """## What's next?
+        """
+        ## What's next?
 
         Check out the tutorial on interactivity for a tour of UI elements:
 
@@ -598,18 +620,18 @@ def __():
             computations (see the next tip).
             """
         ),
-        "Cache intermediate computations with `@functools.cache`": (
+        "Cache intermediate computations with `@mo.cache`": (
             """
-            Use Python's builtin `functools` library to cache expensive
-            intermediate computations. You can do this if you abstract complex
-            logic into idempotent functions, following earlier tips.
+            Use `mo.cache` to cache the return value of expensive functions.
+            You can do this if you abstract complex logic into idempotent
+            functions, following earlier tips.
 
             For example:
 
             ```python3
-            import functools
+            import marimo as mo
 
-            @functools.cache
+            @mo.cache
             def compute_prediction(problem_parameters):
               ...
             ```
@@ -619,16 +641,20 @@ def __():
             and store them in a cache. The next time it is called with the same
             parameters, instead of recomputing the predictions, it will just 
             fetch the previously computed ones from the cache.
+
+            If you are familiar with `functools.cache`, `mo.cache` is
+            similar but more robust, with the cache persisting even
+            if the cell defining the function is re-run.
             """
         ),
     }
-    return tips,
+    return (tips,)
 
 
 @app.cell
 def __():
     import marimo as mo
-    return mo,
+    return (mo,)
 
 
 if __name__ == "__main__":

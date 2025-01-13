@@ -1,16 +1,7 @@
 # Code Editor
 
-```{eval-rst}
-.. marimo-embed::
-    @app.cell
-    def __():
-        mo.ui.code_editor(label="Code Editor", language="python")
-        return
-```
+/// marimo-embed-file
+    filepath: examples/ui/code_editor.py
+///
 
-```{eval-rst}
-.. autoclass:: marimo.ui.code_editor
-  :members:
-
-  .. autoclasstoc:: marimo._plugins.ui._impl.input.code_editor
-```
+::: marimo.ui.code_editor

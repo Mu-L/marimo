@@ -1,5 +1,5 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import { ZodType, ZodTypeDef } from "zod";
+import type { ZodType, ZodTypeDef } from "zod";
 
 export class TypedLocalStorage<T> {
   constructor(
@@ -25,15 +25,17 @@ export class ZodLocalStorage<T> {
   constructor(
     private key: string,
     private schema: ZodType<T, ZodTypeDef, unknown>,
-    private defaultValue: T,
+    private getDefaultValue: () => T,
   ) {}
 
   get(): T {
     try {
       const item = window.localStorage.getItem(this.key);
-      return item ? this.schema.parse(JSON.parse(item)) : this.defaultValue;
+      return item
+        ? this.schema.parse(JSON.parse(item))
+        : this.getDefaultValue();
     } catch {
-      return this.defaultValue;
+      return this.getDefaultValue();
     }
   }
 

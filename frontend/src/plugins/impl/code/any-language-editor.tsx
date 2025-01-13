@@ -1,13 +1,17 @@
 /* Copyright 2024 Marimo. All rights reserved. */
-import ReactCodeMirror, { ReactCodeMirrorProps } from "@uiw/react-codemirror";
+import ReactCodeMirror, {
+  type Extension,
+  type ReactCodeMirrorProps,
+} from "@uiw/react-codemirror";
 import {
   loadLanguage,
   langs,
-  LanguageName,
+  type LanguageName,
 } from "@uiw/codemirror-extensions-langs";
-import React from "react";
+import React, { useMemo } from "react";
 import { Logger } from "@/utils/Logger";
 import { ErrorBanner } from "../common/error-banner";
+import type { ResolvedTheme } from "@/theme/useTheme";
 
 /**
  * A code editor that supports any language.
@@ -17,13 +21,23 @@ import { ErrorBanner } from "../common/error-banner";
  */
 const AnyLanguageCodeMirror: React.FC<
   ReactCodeMirrorProps & {
-    language: string;
+    language: string | undefined;
+    theme: ResolvedTheme;
   }
 > = ({ language, extensions = [], ...props }) => {
-  const isNotSupported = !(language in langs);
+  const isNotSupported = language && !(language in langs);
   if (isNotSupported) {
     Logger.warn(`Language ${language} not found in CodeMirror.`);
   }
+
+  const finalExtensions = useMemo((): Extension[] => {
+    if (!language) {
+      return extensions;
+    }
+    return [loadLanguage(language as LanguageName), ...extensions].filter(
+      Boolean,
+    );
+  }, [language, extensions]);
 
   return (
     <>
@@ -35,13 +49,7 @@ const AnyLanguageCodeMirror: React.FC<
           ).join(", ")}`}
         />
       )}
-      <ReactCodeMirror
-        {...props}
-        extensions={[
-          loadLanguage(language as LanguageName),
-          ...extensions,
-        ].filter(Boolean)}
-      />
+      <ReactCodeMirror {...props} extensions={finalExtensions} />
     </>
   );
 };

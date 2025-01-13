@@ -1,19 +1,23 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { test, expect } from "@playwright/test";
 import { getAppUrl, resetFile } from "../playwright.config";
-import { takeScreenshot } from "./helper";
+import { maybeRestartKernel, takeScreenshot } from "./helper";
+import { fileURLToPath } from "node:url";
 
-const appUrl = getAppUrl("cells.py");
+const _filename = fileURLToPath(import.meta.url);
+
+const appUrl = getAppUrl("disabled_cells.py");
 test.beforeEach(async ({ page }, info) => {
   await page.goto(appUrl);
   if (info.retry) {
     await page.reload();
+    await maybeRestartKernel(page);
   }
 });
 
-test.beforeEach(async () => {
+test.afterEach(async () => {
   // Need to reset the file because this test modifies it
-  await resetFile("cells.py");
+  await resetFile("disabled_cells.py");
 });
 
 test("disabled cells", async ({ page }) => {
@@ -23,14 +27,14 @@ test("disabled cells", async ({ page }) => {
 
   // No add buttons are visible
   await expect(
-    page.getByTestId("create-cell-button").locator(":visible").count(),
-  ).resolves.toBe(0);
+    page.getByTestId("create-cell-button").locator(":visible"),
+  ).toHaveCount(0);
 
   // Hover over a cell the drag button button appears
   // Click the drag button and then disable the cell
   await page.hover("text=Cell 1");
   await page.getByTestId("drag-button").locator(":visible").first().click();
-  await page.getByText("Disable").click();
+  await page.getByText("Disable cell").click();
 
   // Check the cell status
   await expect(page.getByTitle("This cell is disabled")).toBeVisible();
@@ -75,12 +79,10 @@ test("disabled cells", async ({ page }) => {
   // Disable the second cell
   await page.hover("text=Cell 2");
   await page.getByTestId("drag-button").locator(":visible").first().click();
-  await page.getByText("Disable").click();
+  await page.getByText("Disable cell").click();
 
   // Check they are still stale
-  await expect(page.getByTitle("This cell is disabled").count()).resolves.toBe(
-    2,
-  );
+  await expect(page.getByTitle("This cell is disabled")).toHaveCount(2);
   await expect(
     page
       .getByTestId("cell-status")
@@ -97,22 +99,18 @@ test("disabled cells", async ({ page }) => {
   // Enable the first
   await page.hover("text=Cell 1");
   await page.getByTestId("drag-button").locator(":visible").first().click();
-  await page.getByText("Enable").click();
+  await page.getByText("Enable cell").click();
 
   // Check the status
-  await expect(page.getByTitle("This cell is disabled").count()).resolves.toBe(
-    1,
-  );
+  await expect(page.getByTitle("This cell is disabled")).toHaveCount(1);
 
   // Enable the second
   await page.hover("text=Cell 2");
   await page.getByTestId("drag-button").locator(":visible").first().click();
-  await page.getByText("Enable").click();
+  await page.getByText("Enable cell").click();
 
   // Check the status
-  await expect(page.getByTitle("This cell is disabled").count()).resolves.toBe(
-    0,
-  );
+  await expect(page.getByTitle("This cell is disabled")).toHaveCount(0);
 
-  await takeScreenshot(page, __filename);
+  await takeScreenshot(page, _filename);
 });

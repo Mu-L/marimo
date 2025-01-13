@@ -1,13 +1,17 @@
 # Copyright 2024 Marimo. All rights reserved.
-
+from __future__ import annotations
 
 import os
 from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING
 
-from starlette.testclient import TestClient
+from tests._server.mocks import token_header
+
+if TYPE_CHECKING:
+    from starlette.testclient import TestClient
 
 HEADERS = {
-    "Marimo-Server-Token": "fake-token",
+    **token_header("fake-token"),
 }
 
 temp_dir = TemporaryDirectory()
@@ -68,9 +72,27 @@ def test_create_and_delete_file_or_directory(client: TestClient) -> None:
     assert response.json()["success"] is True
 
 
-def test_update_file_or_directory(client: TestClient) -> None:
+def test_update_file(client: TestClient) -> None:
     response = client.post(
         "/api/files/update",
+        headers=HEADERS,
+        json={
+            "path": test_file_path,
+            "contents": "new content",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/json"
+    assert response.json()["success"] is True
+    with open(test_file_path, "r") as f:
+        assert f.read() == "new content"
+    with open(test_file_path, "w") as f:
+        f.write(test_content)
+
+
+def test_move_file_or_directory(client: TestClient) -> None:
+    response = client.post(
+        "/api/files/move",
         headers=HEADERS,
         json={
             "path": test_file_path,

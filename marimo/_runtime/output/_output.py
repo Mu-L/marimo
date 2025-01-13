@@ -1,19 +1,21 @@
 # Copyright 2024 Marimo. All rights reserved.
-import sys
+from __future__ import annotations
 
 from marimo._ast.cell import CellId_t
 from marimo._messaging.cell_output import CellChannel
 from marimo._messaging.ops import CellOp
+from marimo._messaging.tracebacks import write_traceback
 from marimo._output import formatting
 from marimo._output.rich_help import mddoc
 from marimo._plugins.stateless.flex import vstack
 from marimo._runtime.context import get_context
+from marimo._runtime.context.types import ContextNotInitializedError
 
 
 def write_internal(cell_id: CellId_t, value: object) -> None:
     output = formatting.try_format(value)
     if output.traceback is not None:
-        sys.stderr.write(output.traceback)
+        write_traceback(output.traceback)
     CellOp.broadcast_output(
         channel=CellChannel.OUTPUT,
         mimetype=output.mimetype,
@@ -34,14 +36,52 @@ def replace(value: object) -> None:
 
     - `value`: object to output
     """
-    ctx = get_context()
-    if ctx.kernel.execution_context is None:
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
+        return
+
+    if ctx.execution_context is None:
         return
     elif value is None:
-        ctx.kernel.execution_context.output = None
+        ctx.execution_context.output = None
     else:
-        ctx.kernel.execution_context.output = [formatting.as_html(value)]
-    write_internal(cell_id=ctx.kernel.execution_context.cell_id, value=value)
+        ctx.execution_context.output = [formatting.as_html(value)]
+    write_internal(cell_id=ctx.execution_context.cell_id, value=value)
+
+
+@mddoc
+def replace_at_index(value: object, idx: int) -> None:
+    """Replace a cell's output at the given index with value.
+
+    Call this function to replace an existing object in a cell's output. If idx
+    is equal to the length of the output, this is equivalent to an append.
+
+    **Args:**
+
+    - `value`: new object to replace an existing object
+    - `idx`: index of output to replace
+    """
+
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
+        return
+
+    if ctx.execution_context is None or ctx.execution_context.output is None:
+        return
+    elif idx > len(ctx.execution_context.output):
+        raise IndexError(
+            f"idx is {idx}, must be <= {len(ctx.execution_context.output)}"
+        )
+    elif idx == len(ctx.execution_context.output):
+        ctx.execution_context.output.append(formatting.as_html(value))
+    else:
+        ctx.execution_context.output[idx] = formatting.as_html(value)
+    write_internal(
+        cell_id=ctx.execution_context.cell_id,
+        value=vstack(ctx.execution_context.output),
+    )
 
 
 @mddoc
@@ -55,17 +95,21 @@ def append(value: object) -> None:
 
     - `value`: object to output
     """
-    ctx = get_context()
-    if ctx.kernel.execution_context is None:
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
         return
 
-    if ctx.kernel.execution_context.output is None:
-        ctx.kernel.execution_context.output = [formatting.as_html(value)]
+    if ctx.execution_context is None:
+        return
+
+    if ctx.execution_context.output is None:
+        ctx.execution_context.output = [formatting.as_html(value)]
     else:
-        ctx.kernel.execution_context.output.append(formatting.as_html(value))
+        ctx.execution_context.output.append(formatting.as_html(value))
     write_internal(
-        cell_id=ctx.kernel.execution_context.cell_id,
-        value=vstack(ctx.kernel.execution_context.output),
+        cell_id=ctx.execution_context.cell_id,
+        value=vstack(ctx.execution_context.output),
     )
 
 
@@ -77,29 +121,32 @@ def clear() -> None:
 
 def flush() -> None:
     """Internal function to re-render the cell's output."""
-    ctx = get_context()
-    if ctx.kernel.execution_context is None:
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
         return
 
-    if ctx.kernel.execution_context.output is not None:
-        value = vstack(ctx.kernel.execution_context.output)
+    if ctx.execution_context is None:
+        return
+
+    if ctx.execution_context.output is not None:
+        value = vstack(ctx.execution_context.output)
     else:
         value = None
-    write_internal(cell_id=ctx.kernel.execution_context.cell_id, value=value)
+    write_internal(cell_id=ctx.execution_context.cell_id, value=value)
 
 
 def remove(value: object) -> None:
     """Internal function to remove an object from a cell's output."""
-    ctx = get_context()
-    if (
-        ctx.kernel.execution_context is None
-        or ctx.kernel.execution_context.output is None
-    ):
+    try:
+        ctx = get_context()
+    except ContextNotInitializedError:
+        return
+
+    if ctx.execution_context is None or ctx.execution_context.output is None:
         return
     output = [
-        item
-        for item in ctx.kernel.execution_context.output
-        if item is not value
+        item for item in ctx.execution_context.output if item is not value
     ]
-    ctx.kernel.execution_context.output = output if output else None
+    ctx.execution_context.output = output if output else None
     flush()

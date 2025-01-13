@@ -1,7 +1,7 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import React, { Fragment } from "react";
 import {
-  CellActionButtonProps,
+  type CellActionButtonProps,
   useCellActionButtons,
 } from "../actions/useCellActionButton";
 import {
@@ -12,33 +12,58 @@ import {
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
 import { renderMinimalShortcut } from "@/components/shortcuts/renderShortcut";
-import { ActionButton } from "../actions/types";
+import type { ActionButton } from "../actions/types";
 import {
+  ClipboardCopyIcon,
   ClipboardPasteIcon,
   CopyIcon,
   ImageIcon,
   ScissorsIcon,
+  SearchIcon,
 } from "lucide-react";
+import { goToDefinitionAtCursorPosition } from "@/core/codemirror/go-to-definition/utils";
+import { CellOutputId } from "@/core/cells/ids";
+import { Logger } from "@/utils/Logger";
+import { copyToClipboard } from "@/utils/copy";
+import { toast } from "@/components/ui/use-toast";
 
 interface Props extends CellActionButtonProps {
   children: React.ReactNode;
 }
 
 export const CellActionsContextMenu = ({ children, ...props }: Props) => {
-  const actions = useCellActionButtons(props);
+  const actions = useCellActionButtons({ cell: props });
   const [imageRightClicked, setImageRightClicked] =
     React.useState<HTMLImageElement>();
 
   const DEFAULT_CONTEXT_MENU_ITEMS: ActionButton[] = [
     {
       label: "Copy",
+      hidden: Boolean(imageRightClicked),
       icon: <CopyIcon size={13} strokeWidth={1.5} />,
-      handle: () => {
-        document.execCommand("copy");
+      handle: async () => {
+        // Has selection, use browser copy
+        const hasSelection = window.getSelection()?.toString();
+        if (hasSelection) {
+          document.execCommand("copy");
+          return;
+        }
+
+        // No selection, copy the full cell output
+        const output = document.getElementById(
+          CellOutputId.create(props.cellId),
+        );
+        if (!output) {
+          Logger.warn("cell-context-menu: output not found");
+          return;
+        }
+        // Copy the output of the cell
+        await copyToClipboard(output.textContent ?? "");
       },
     },
     {
       label: "Cut",
+      hidden: Boolean(imageRightClicked),
       icon: <ScissorsIcon size={13} strokeWidth={1.5} />,
       handle: () => {
         document.execCommand("cut");
@@ -46,9 +71,11 @@ export const CellActionsContextMenu = ({ children, ...props }: Props) => {
     },
     {
       label: "Paste",
+      hidden: Boolean(imageRightClicked),
       icon: <ClipboardPasteIcon size={13} strokeWidth={1.5} />,
       handle: async () => {
-        const { editorView } = props;
+        const { getEditorView } = props;
+        const editorView = getEditorView();
         if (!editorView) {
           return;
         }
@@ -68,6 +95,33 @@ export const CellActionsContextMenu = ({ children, ...props }: Props) => {
       },
     },
     {
+      label: "Copy image",
+      hidden: !imageRightClicked,
+      icon: <ClipboardCopyIcon size={13} strokeWidth={1.5} />,
+      handle: async () => {
+        if (imageRightClicked) {
+          const response = await fetch(imageRightClicked.src);
+          const blob = await response.blob();
+          const item = new ClipboardItem({ [blob.type]: blob });
+          await navigator.clipboard
+            .write([item])
+            .then(() => {
+              toast({
+                title: "Copied image to clipboard",
+              });
+            })
+            .catch((error) => {
+              toast({
+                title:
+                  "Failed to copy image to clipboard. Try downloading instead.",
+                description: error.message,
+              });
+              Logger.error("Failed to copy image to clipboard", error);
+            });
+        }
+      },
+    },
+    {
       icon: <ImageIcon size={13} strokeWidth={1.5} />,
       label: "Download image",
       hidden: !imageRightClicked,
@@ -77,6 +131,17 @@ export const CellActionsContextMenu = ({ children, ...props }: Props) => {
           link.download = "image.png";
           link.href = imageRightClicked.src;
           link.click();
+        }
+      },
+    },
+    {
+      label: "Go to Definition",
+      icon: <SearchIcon size={13} strokeWidth={1.5} />,
+      handle: () => {
+        const { getEditorView } = props;
+        const editorView = getEditorView();
+        if (editorView) {
+          goToDefinitionAtCursorPosition(editorView);
         }
       },
     },
@@ -113,7 +178,9 @@ export const CellActionsContextMenu = ({ children, ...props }: Props) => {
                 >
                   <div className="flex items-center flex-1">
                     {action.icon && (
-                      <div className="mr-2 w-5">{action.icon}</div>
+                      <div className="mr-2 w-5 text-muted-foreground">
+                        {action.icon}
+                      </div>
                     )}
                     <div className="flex-1">{action.label}</div>
                     <div className="flex-shrink-0 text-sm">

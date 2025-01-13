@@ -1,10 +1,11 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { logNever } from "@/utils/assertNever";
-import { CellMessage, OutputMessage } from "../kernel/messages";
-import { CellRuntimeState } from "./types";
+import type { CellMessage } from "../kernel/messages";
+import type { CellRuntimeState } from "./types";
 import { collapseConsoleOutputs } from "./collapseConsoleOutputs";
 import { parseOutline } from "../dom/outline";
-import { Seconds, Time } from "@/utils/time";
+import { type Seconds, Time } from "@/utils/time";
+import { invariant } from "@/utils/invariant";
 
 export function transitionCell(
   cell: CellRuntimeState,
@@ -37,7 +38,9 @@ export function transitionCell(
         nextCell.consoleOutputs = [];
       }
       nextCell.stopped = false;
-      nextCell.runStartTimestamp = message.timestamp;
+      nextCell.runStartTimestamp = message.timestamp as Seconds;
+      // Store the last run timestamp, since this gets cleared once idle
+      nextCell.lastRunStartTimestamp = message.timestamp as Seconds;
       break;
     case "idle":
       if (cell.runStartTimestamp) {
@@ -45,22 +48,28 @@ export function transitionCell(
           (message.timestamp - cell.runStartTimestamp) as Seconds,
         ).toMilliseconds();
         nextCell.runStartTimestamp = null;
+        nextCell.staleInputs = false;
+      }
+      // If last run start timestamp is not set, set it to the current timestamp
+      // This happens on a resumed session
+      if (!cell.lastRunStartTimestamp && message.timestamp) {
+        nextCell.lastRunStartTimestamp = message.timestamp as Seconds;
       }
       nextCell.debuggerActive = false;
       break;
     case null:
       break;
-    case "stale":
-      // Everything should already be up to date from prepareCellForExecution
-      break;
     case "disabled-transitively":
       // Everything should already be up to date from prepareCellForExecution
+      break;
+    case undefined:
       break;
     default:
       logNever(message.status);
   }
 
   nextCell.output = message.output ?? nextCell.output;
+  nextCell.staleInputs = message.stale_inputs ?? nextCell.staleInputs;
   nextCell.status = message.status ?? nextCell.status;
 
   let didInterruptFromThisMessage = false;
@@ -68,15 +77,27 @@ export function transitionCell(
   // Handle errors: marimo includes an error output when a cell is interrupted
   // or errored
   if (
-    message.output !== null &&
+    message.output != null &&
     message.output.mimetype === "application/vnd.marimo+error"
   ) {
+    // The frontend manually sets status to queued when a user runs a cell,
+    // to give immediate feedback, but the kernel doesn't know that.
+    //
+    // TODO(akshayka): Move all status management to the backend.
+    if (nextCell.status === "queued" || nextCell.status === "running") {
+      nextCell.status = "idle";
+    }
+
+    invariant(
+      Array.isArray(message.output.data),
+      "Expected error output data to be an array",
+    );
     if (message.output.data.some((error) => error.type === "interruption")) {
       // Interrupted helps distinguish that the cell is stale
       nextCell.interrupted = true;
       didInterruptFromThisMessage = true;
     } else if (
-      message.output.data.some((error) => error.type === "ancestor-stopped")
+      message.output.data.some((error) => error.type.includes("ancestor"))
     ) {
       // The cell didn't run, but it was intentional, so don't count as
       // errored.
@@ -108,7 +129,9 @@ export function transitionCell(
     // existing console outputs.
     consoleOutputs = Array.isArray(message.console)
       ? message.console
-      : collapseConsoleOutputs([...consoleOutputs, message.console]);
+      : collapseConsoleOutputs(
+          [...consoleOutputs, message.console].filter(Boolean),
+        );
   }
   nextCell.consoleOutputs = consoleOutputs;
   // Derive outline from output
@@ -117,8 +140,7 @@ export function transitionCell(
   // Transition PDB
   const newConsoleOutputs = [message.console].flat().filter(Boolean);
   const pdbOutputs = newConsoleOutputs.filter(
-    (output): output is Extract<OutputMessage, { channel: "pdb" }> =>
-      output.channel === "pdb",
+    (output) => output.channel === "pdb",
   );
   const hasPdbOutput = pdbOutputs.length > 0;
   if (hasPdbOutput && pdbOutputs.some((output) => output.data === "start")) {
@@ -135,6 +157,11 @@ export function prepareCellForExecution(
 ): CellRuntimeState {
   const nextCell = { ...cell };
 
+  if (cell.status !== "disabled-transitively") {
+    // TODO(akshayka): Move this to the backend. It's in the FE right now
+    // to give the user immediate feedback.
+    nextCell.status = "queued";
+  }
   nextCell.interrupted = false;
   nextCell.errored = false;
   nextCell.runElapsedTimeMs = null;
@@ -144,23 +171,23 @@ export function prepareCellForExecution(
 }
 
 /**
- * A cell is stale if it has been edited, is loading, or has errored.
+ * A cell's output is stale if it has been edited, is loading, or has errored.
  */
 export function outputIsStale(
   cell: Pick<
     CellRuntimeState,
-    "status" | "output" | "runStartTimestamp" | "interrupted"
+    "status" | "output" | "runStartTimestamp" | "interrupted" | "staleInputs"
   >,
   edited: boolean,
 ): boolean {
-  const { status, output, runStartTimestamp, interrupted } = cell;
+  const { status, output, runStartTimestamp, interrupted, staleInputs } = cell;
 
-  // If interrupted, the cell is not stale
+  // If interrupted, the output is not stale
   if (interrupted) {
     return false;
   }
 
-  // If edited, the cell is stale
+  // If edited, the cell's output is stale
   if (edited) {
     return true;
   }
@@ -180,5 +207,5 @@ export function outputIsStale(
     return true;
   }
 
-  return status === "stale";
+  return staleInputs;
 }

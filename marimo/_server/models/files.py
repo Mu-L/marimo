@@ -1,6 +1,10 @@
 # Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Literal, Optional
+
+from marimo._server.models.models import BaseResponse
 
 
 @dataclass
@@ -10,7 +14,7 @@ class FileInfo:
     name: str
     is_directory: bool
     is_marimo_file: bool
-    last_modified_date: Optional[float] = None
+    last_modified: Optional[float] = None
     children: List["FileInfo"] = field(default_factory=list)
 
 
@@ -44,10 +48,10 @@ class FileCreateRequest:
     # The path where to create the file or directory
     path: str
     # 'file' or 'directory'
-    type: str
+    type: Literal["file", "directory"]
     # The name of the file or directory
     name: str
-    # The contents of the file
+    # The contents of the file, base64-encoded
     contents: Optional[str] = None
 
 
@@ -58,11 +62,19 @@ class FileDeleteRequest:
 
 
 @dataclass
-class FileUpdateRequest:
+class FileMoveRequest:
     # The current path of the file or directory
     path: str
     # The new path or name for the file or directory
     new_path: str
+
+
+@dataclass
+class FileUpdateRequest:
+    # The current path of the file or directory
+    path: str
+    # The new contents of the file
+    contents: str
 
 
 @dataclass
@@ -79,23 +91,27 @@ class FileDetailsResponse:
 
 
 @dataclass
-class FileCreateResponse:
-    success: bool
+class FileCreateResponse(BaseResponse):
     # Additional information, e.g., error message
     message: Optional[str] = None
     info: Optional[FileInfo] = None
 
 
 @dataclass
-class FileDeleteResponse:
-    success: bool
+class FileDeleteResponse(BaseResponse):
     # Additional information, e.g., error message
     message: Optional[str] = None
 
 
 @dataclass
-class FileUpdateResponse:
-    success: bool
+class FileUpdateResponse(BaseResponse):
+    # Additional information, e.g., error message
+    message: Optional[str] = None
+    info: Optional[FileInfo] = None
+
+
+@dataclass
+class FileMoveResponse(BaseResponse):
     # Additional information, e.g., error message
     message: Optional[str] = None
     info: Optional[FileInfo] = None

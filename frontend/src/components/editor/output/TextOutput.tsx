@@ -1,6 +1,6 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 
-import { OutputChannel } from "@/core/kernel/messages";
+import type { OutputChannel } from "@/core/kernel/messages";
 import { cn } from "@/utils/cn";
 import { AnsiUp } from "ansi_up";
 
@@ -8,11 +8,11 @@ const ansiUp = new AnsiUp();
 
 interface Props {
   text: string;
-  channel?: OutputChannel | "stdin";
+  channel?: OutputChannel;
 }
 
 export const TextOutput = ({ text, channel }: Props): JSX.Element => {
-  const shouldRenderAnsi = channel === "stdout";
+  const shouldRenderAnsi = channel === "stdout" || channel === "stderr";
 
   const renderAnsiText = (text: string) => {
     return (

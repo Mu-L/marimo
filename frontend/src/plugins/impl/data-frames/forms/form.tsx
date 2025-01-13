@@ -7,10 +7,10 @@ import {
 } from "../../../../components/ui/input";
 import { Checkbox } from "../../../../components/ui/checkbox";
 import {
-  FieldValues,
+  type FieldValues,
   FormProvider,
-  Path,
-  UseFormReturn,
+  type Path,
+  type UseFormReturn,
   useController,
   useFieldArray,
 } from "react-hook-form";
@@ -60,6 +60,7 @@ import {
   TextAreaMultiSelect,
   ensureStringArray,
 } from "@/components/forms/switchable-multi-select";
+import type { ColumnId } from "../types";
 
 interface Props<T extends FieldValues> {
   form: UseFormReturn<T>;
@@ -98,6 +99,9 @@ function renderZodSchema<T extends FieldValues, S>(
         : inner;
     return renderZodSchema(inner, form, path);
   }
+  if (special === "column_id") {
+    return <ColumnFormField schema={schema} form={form} path={path} />;
+  }
 
   if (schema instanceof z.ZodObject) {
     if (special === "column_filter") {
@@ -132,17 +136,38 @@ function renderZodSchema<T extends FieldValues, S>(
         })}
       </div>
     );
-  } else if (schema instanceof z.ZodString) {
-    if (special === "column_id") {
-      return <ColumnFormField schema={schema} form={form} path={path} />;
-    }
-
+  }
+  if (schema instanceof z.ZodString) {
     if (special === "column_values") {
       return <ColumnValuesFormField schema={schema} form={form} path={path} />;
     }
+    if (special === "time") {
+      return (
+        <FormField
+          control={form.control}
+          name={path}
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{label}</FormLabel>
+              <FormDescription>{description}</FormDescription>
+              <FormControl>
+                <DebouncedInput
+                  {...field}
+                  onValueChange={field.onChange}
+                  type="time"
+                  className="my-0"
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      );
+    }
 
     return <StringFormField schema={schema} form={form} path={path} />;
-  } else if (schema instanceof z.ZodBoolean) {
+  }
+  if (schema instanceof z.ZodBoolean) {
     return (
       <FormField
         control={form.control}
@@ -154,6 +179,7 @@ function renderZodSchema<T extends FieldValues, S>(
               <FormDescription>{description}</FormDescription>
               <FormControl>
                 <Checkbox
+                  data-testid="marimo-plugin-data-frames-boolean-checkbox"
                   checked={field.value}
                   onCheckedChange={field.onChange}
                 />
@@ -164,7 +190,8 @@ function renderZodSchema<T extends FieldValues, S>(
         )}
       />
     );
-  } else if (schema instanceof z.ZodNumber) {
+  }
+  if (schema instanceof z.ZodNumber) {
     if (special === "random_number_button") {
       return (
         <FormField
@@ -173,6 +200,7 @@ function renderZodSchema<T extends FieldValues, S>(
           render={({ field }) => (
             <Button
               size="xs"
+              data-testid="marimo-plugin-data-frames-random-number-button"
               variant="secondary"
               onClick={() => {
                 field.onChange(randomNumber());
@@ -197,7 +225,6 @@ function renderZodSchema<T extends FieldValues, S>(
             <FormControl>
               <DebouncedNumberInput
                 {...field}
-                type="number"
                 className="my-0"
                 onValueChange={field.onChange}
               />
@@ -207,7 +234,15 @@ function renderZodSchema<T extends FieldValues, S>(
         )}
       />
     );
-  } else if (schema instanceof z.ZodDate) {
+  }
+  if (schema instanceof z.ZodDate) {
+    const inputType =
+      special === "datetime"
+        ? "datetime-local"
+        : special === "time"
+          ? "time"
+          : "date";
+
     return (
       <FormField
         control={form.control}
@@ -220,7 +255,7 @@ function renderZodSchema<T extends FieldValues, S>(
               <DebouncedInput
                 {...field}
                 onValueChange={field.onChange}
-                type="date"
+                type={inputType}
                 className="my-0"
               />
             </FormControl>
@@ -229,9 +264,11 @@ function renderZodSchema<T extends FieldValues, S>(
         )}
       />
     );
-  } else if (schema instanceof z.ZodAny) {
+  }
+  if (schema instanceof z.ZodAny) {
     return <StringFormField schema={schema} form={form} path={path} />;
-  } else if (schema instanceof z.ZodEnum) {
+  }
+  if (schema instanceof z.ZodEnum) {
     return (
       <SelectFormField
         schema={schema}
@@ -240,7 +277,8 @@ function renderZodSchema<T extends FieldValues, S>(
         options={schema._def.values}
       />
     );
-  } else if (schema instanceof z.ZodArray) {
+  }
+  if (schema instanceof z.ZodArray) {
     if (special === "text_area_multiline") {
       return <MultiStringFormField schema={schema} form={form} path={path} />;
     }
@@ -255,7 +293,7 @@ function renderZodSchema<T extends FieldValues, S>(
     const childSpecial = FieldOptions.parse(childType._def.description).special;
 
     // Show column multi-select for array with column_id
-    if (childType instanceof z.ZodString && childSpecial === "column_id") {
+    if (childSpecial === "column_id") {
       return (
         <MultiColumnFormField
           schema={childType}
@@ -293,7 +331,8 @@ function renderZodSchema<T extends FieldValues, S>(
         />
       </div>
     );
-  } else if (schema instanceof z.ZodUnion) {
+  }
+  if (schema instanceof z.ZodUnion) {
     return (
       <FormField
         control={form.control}
@@ -317,7 +356,10 @@ function renderZodSchema<T extends FieldValues, S>(
           return (
             <div className="flex flex-col">
               <FormLabel>{label}</FormLabel>
-              <NativeSelect {...field}>
+              <NativeSelect
+                data-testid="marimo-plugin-data-frames-union-select"
+                {...field}
+              >
                 {types.map((type: string) => {
                   return (
                     <option key={type} value={type}>
@@ -332,7 +374,8 @@ function renderZodSchema<T extends FieldValues, S>(
         }}
       />
     );
-  } else if (schema instanceof z.ZodLiteral) {
+  }
+  if (schema instanceof z.ZodLiteral) {
     return (
       <FormField
         control={form.control}
@@ -340,19 +383,19 @@ function renderZodSchema<T extends FieldValues, S>(
         render={({ field }) => <input {...field} type="hidden" />}
       />
     );
-  } else if (
+  }
+  if (
     schema instanceof z.ZodEffects &&
     ["refinement", "transform"].includes(schema._def.effect.type)
   ) {
     return renderZodSchema(schema._def.schema, form, path);
-  } else {
-    return (
-      <div>
-        Unknown schema type{" "}
-        {schema ? JSON.stringify(schema._type || schema) : path}
-      </div>
-    );
   }
+  return (
+    <div>
+      Unknown schema type{" "}
+      {schema == null ? path : JSON.stringify(schema._type ?? schema)}
+    </div>
+  );
 }
 
 const StyledFormMessage = ({ className }: { className?: string }) => {
@@ -401,7 +444,7 @@ const FormArray = ({
       {fields.map((field, index) => {
         return (
           <div
-            className="flex flex-row pl-2 ml-4 border-l-2 border-disabled hover-actions-parent relative pr-5 pt-1 items-center w-fit"
+            className="flex flex-row pl-2 ml-2 border-l-2 border-disabled hover-actions-parent relative pr-5 pt-1 items-center w-fit"
             key={field.id}
             onKeyDown={Events.onEnter((e) => e.preventDefault())}
           >
@@ -425,6 +468,7 @@ const FormArray = ({
       <div>
         <Button
           size="xs"
+          data-testid="marimo-plugin-data-frames-add-array-item"
           variant="text"
           className="hover:text-accent-foreground"
           onClick={() => {
@@ -440,7 +484,7 @@ const FormArray = ({
 };
 
 /**
- * Type: string
+ * Type: string | number
  * Special: column_id
  */
 const ColumnFormField = ({
@@ -449,10 +493,10 @@ const ColumnFormField = ({
   path,
   onChange,
 }: {
-  schema: z.ZodString;
+  schema: z.ZodSchema;
   form: UseFormReturn<any>;
   path: Path<any>;
-  onChange?: (value: string) => void;
+  onChange?: (value: ColumnId) => void;
 }) => {
   const columns = useContext(ColumnInfoContext);
   const { label, description } = FieldOptions.parse(schema._def.description);
@@ -468,20 +512,24 @@ const ColumnFormField = ({
           <StyledFormMessage />
           <FormControl>
             <Select
-              value={field.value}
+              data-testid="marimo-plugin-data-frames-column-select"
+              value={
+                field.value == null ? field.value : JSON.stringify(field.value)
+              }
               onValueChange={(value) => {
-                onChange?.(value);
-                field.onChange(value);
+                const realValue = JSON.parse(value) as ColumnId;
+                onChange?.(realValue);
+                field.onChange(realValue);
               }}
             >
-              <SelectTrigger className="min-w-[210px]">
+              <SelectTrigger className="min-w-[180px]">
                 <SelectValue placeholder="--" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {Objects.entries(columns).map(([name, dtype]) => {
+                  {[...columns.entries()].map(([name, dtype]) => {
                     return (
-                      <SelectItem key={name} value={name.toString()}>
+                      <SelectItem key={name} value={JSON.stringify(name)}>
                         <span className="flex items-center gap-2 flex-1">
                           <DataTypeIcon type={dtype} />
                           <span className="flex-1">{name}</span>
@@ -492,7 +540,7 @@ const ColumnFormField = ({
                       </SelectItem>
                     );
                   })}
-                  {Objects.keys(columns).length === 0 && (
+                  {columns.size === 0 && (
                     <SelectItem disabled={true} value="--">
                       No columns
                     </SelectItem>
@@ -508,7 +556,7 @@ const ColumnFormField = ({
 };
 
 /**
- * Type: string[]
+ * Type: (string | number)[]
  * Special: column_ids
  */
 const MultiColumnFormField = ({
@@ -517,7 +565,7 @@ const MultiColumnFormField = ({
   path,
   itemLabel,
 }: {
-  schema: z.ZodString;
+  schema: z.ZodSchema;
   form: UseFormReturn<any>;
   path: Path<any>;
   itemLabel?: string;
@@ -538,10 +586,10 @@ const MultiColumnFormField = ({
             <FormLabel>{itemLabel}</FormLabel>
             <FormDescription>{description}</FormDescription>
             <FormControl>
-              <Combobox
-                className="min-w-[210px]"
+              <Combobox<ColumnId>
+                className="min-w-[180px]"
                 placeholder={placeholder}
-                displayValue={(option: string) => option}
+                displayValue={String}
                 multiple={true}
                 chips={true}
                 keepPopoverOpenOnSelect={true}
@@ -550,9 +598,9 @@ const MultiColumnFormField = ({
                   field.onChange(v);
                 }}
               >
-                {Objects.entries(columns).map(([name, dtype]) => {
+                {[...columns.entries()].map(([name, dtype]) => {
                   return (
-                    <ComboboxItem key={name} value={name.toString()}>
+                    <ComboboxItem key={name} value={name}>
                       <span className="flex items-center gap-2 flex-1">
                         <DataTypeIcon type={dtype} />
                         <span className="flex-1">{name}</span>
@@ -597,18 +645,18 @@ const FilterForm = ({
   )?.[1] as unknown as z.ZodString;
 
   // existing values
-  const { column_id: columnId, operator } = field.value || {};
+  const { column_id: columnId, operator } = field.value ?? {};
 
   const children = [
     <ColumnFormField
-      key={`column_id`}
+      key={"column_id"}
       schema={columnIdSchema}
       form={form}
       path={`${path}.column_id`}
       onChange={(value) => {
         // Reset operator and value if the column type changes
-        const currentDtype = columns[columnId];
-        const nextDtype = columns[value];
+        const currentDtype = columns.get(columnId);
+        const nextDtype = columns.get(value);
         if (nextDtype !== currentDtype) {
           form.setValue(`${path}.value`, undefined);
         }
@@ -618,7 +666,7 @@ const FilterForm = ({
 
   // When column ID changes, get the new dtype and reset the operator
   useEffect(() => {
-    const dtype = columns[columnId];
+    const dtype = columns.get(columnId);
     const operators = getOperatorForDtype(dtype);
 
     const currentOperator = form.getValues(`${path}.operator`);
@@ -629,14 +677,14 @@ const FilterForm = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columnId]);
 
-  if (columnId) {
-    const dtype = columns[columnId];
+  if (columnId != null) {
+    const dtype = columns.get(columnId);
     const operators = getOperatorForDtype(dtype);
 
     if (operators.length === 0) {
       children.push(
         <div
-          key={`no_operator`}
+          key={"no_operator"}
           className="text-muted-foreground text-xs font-semibold"
         >
           <FormLabel className="whitespace-pre"> </FormLabel>
@@ -646,7 +694,7 @@ const FilterForm = ({
     } else {
       children.push(
         <FormField
-          key={`operator`}
+          key={"operator"}
           control={form.control}
           name={`${path}.operator`}
           render={({ field }) => (
@@ -654,8 +702,12 @@ const FilterForm = ({
               <FormLabel className="whitespace-pre"> </FormLabel>
               <FormDescription>{description}</FormDescription>
               <FormControl>
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="min-w-[210px]">
+                <Select
+                  data-testid="marimo-plugin-data-frames-filter-operator-select"
+                  value={field.value}
+                  onValueChange={field.onChange}
+                >
+                  <SelectTrigger className="min-w-[140px]">
                     <SelectValue placeholder="--" />
                   </SelectTrigger>
                   <SelectContent>
@@ -679,12 +731,12 @@ const FilterForm = ({
     }
   }
 
-  if (operator) {
-    const dtype = columns[columnId];
+  if (operator != null) {
+    const dtype = columns.get(columnId);
     const operandSchemas = getSchemaForOperator(dtype, operator);
     if (operandSchemas.length === 1) {
       children.push(
-        <React.Fragment key={`value`}>
+        <React.Fragment key={"value"}>
           <ColumnNameContext.Provider value={columnId}>
             {renderZodSchema(operandSchemas[0], form, `${path}.value`)}
           </ColumnNameContext.Provider>
@@ -699,7 +751,7 @@ const FilterForm = ({
       name={path}
       render={() => (
         <div className="flex flex-col gap-2 bg-red">
-          <div className={cn("flex flex-row gap-3")}>{children}</div>
+          <div className={cn("flex flex-row gap-2")}>{children}</div>
           <FormMessage />
         </div>
       )}
@@ -855,8 +907,12 @@ const SelectFormField = ({
           <FormLabel className="whitespace-pre">{label}</FormLabel>
           <FormDescription>{description}</FormDescription>
           <FormControl>
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger className="min-w-[210px]">
+            <Select
+              data-testid="marimo-plugin-data-frames-select"
+              value={field.value}
+              onValueChange={field.onChange}
+            >
+              <SelectTrigger className="min-w-[180px]">
                 <SelectValue placeholder="--" />
               </SelectTrigger>
               <SelectContent>
@@ -931,7 +987,7 @@ const MultiSelectFormField = ({
                 />
               ) : (
                 <Combobox
-                  className="min-w-[210px]"
+                  className="min-w-[180px]"
                   placeholder={resolvePlaceholder}
                   displayValue={(option: string) => Strings.startCase(option)}
                   multiple={true}
@@ -997,7 +1053,7 @@ const ColumnValuesFormField = ({
             <FormDescription>{description}</FormDescription>
             <FormControl>
               <Combobox
-                className="min-w-[210px]"
+                className="min-w-[180px]"
                 placeholder={placeholder}
                 multiple={false}
                 displayValue={(option: string) => option}

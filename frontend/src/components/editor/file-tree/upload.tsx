@@ -1,18 +1,20 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { toast } from "@/components/ui/use-toast";
 import { sendCreateFileOrFolder } from "@/core/network/requests";
-import { FilePath } from "@/utils/paths";
-import { DropzoneOptions, useDropzone } from "react-dropzone";
+import type { FilePath } from "@/utils/paths";
+import { serializeBlob } from "@/utils/blob";
+import { type DropzoneOptions, useDropzone } from "react-dropzone";
 import { refreshRoot } from "./state";
+import { Logger } from "@/utils/Logger";
 
-const MAX_SIZE = 1024 * 1024 * 50; // 50MB
+const MAX_SIZE = 1024 * 1024 * 100; // 100MB
 
 export function useFileExplorerUpload(options: DropzoneOptions = {}) {
   return useDropzone({
     multiple: true,
     maxSize: MAX_SIZE,
     onError: (error) => {
-      console.error(error);
+      Logger.error(error);
       toast({
         title: "File upload failed",
         description: error.message,
@@ -37,18 +39,17 @@ export function useFileExplorerUpload(options: DropzoneOptions = {}) {
     },
     onDrop: async (acceptedFiles) => {
       for (const file of acceptedFiles) {
+        // File contents are sent base64-encoded to support arbitrary
+        // bytes data
+        //
+        // get the raw base64-encoded data from a string starting with
+        // data:*/*;base64,
+        const base64 = (await serializeBlob(file)).split(",")[1];
         await sendCreateFileOrFolder({
           path: "" as FilePath, // add to root
           type: "file",
           name: file.name,
-          contents: await file.text(),
-        }).catch((error) => {
-          console.error(error);
-          toast({
-            title: "File upload failed",
-            description: error.message,
-            variant: "danger",
-          });
+          contents: base64,
         });
       }
       await refreshRoot();

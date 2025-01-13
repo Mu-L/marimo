@@ -9,28 +9,24 @@
  */
 import React, {
   createRef,
-  ReactNode,
-  SetStateAction,
+  type ReactNode,
+  type SetStateAction,
   Suspense,
   useEffect,
   useImperativeHandle,
   useMemo,
   useState,
 } from "react";
-import ReactDOM, { Root } from "react-dom/client";
+import ReactDOM, { type Root } from "react-dom/client";
 
-import {
-  createInputEvent,
-  marimoValueUpdateEvent,
-  MarimoValueUpdateEventType,
-} from "@/core/dom/events";
+import { createInputEvent, MarimoValueUpdateEvent } from "@/core/dom/events";
 import { defineCustomElement } from "../../core/dom/defineCustomElement";
 import {
   parseAttrValue,
   parseDataset,
   parseInitialValue,
 } from "../../core/dom/htmlUtils";
-import { IPlugin } from "../types";
+import type { IPlugin } from "../types";
 import { Objects } from "../../utils/objects";
 import { renderError } from "./BadPlugin";
 import { renderHTML } from "./RenderHTML";
@@ -38,15 +34,18 @@ import { invariant } from "../../utils/invariant";
 import { Logger } from "../../utils/Logger";
 import { useTheme } from "@/theme/useTheme";
 import { FUNCTIONS_REGISTRY } from "@/core/functions/FunctionRegistry";
-import { getUIElementObjectId } from "@/core/dom/UIElement";
-import { PluginFunctions } from "./rpc";
-import { ZodSchema } from "zod";
+import { getUIElementObjectId } from "@/core/dom/ui-element";
+import type { PluginFunctions } from "./rpc";
+import type { ZodSchema } from "zod";
 import useEvent from "react-use-event-hook";
 import { Functions } from "@/utils/functions";
+import { StyleNamespace } from "@/theme/namespace";
+import { UIElementRegistry } from "@/core/dom/uiregistry";
 import {
-  getStaticNotebookAssetUrl,
-  isStaticNotebook,
-} from "@/core/static/static-state";
+  type HTMLElementNotDerivedFromRef,
+  useEventListener,
+} from "@/hooks/useEventListener";
+import { shallowCompare } from "@/utils/shallow-compare";
 
 export interface PluginSlotHandle {
   /**
@@ -102,14 +101,20 @@ function PluginSlotInternal<T>(
     },
   }));
 
-  useEffect(() => {
-    const handleValue = (e: MarimoValueUpdateEventType) => {
+  // Listen to value updates
+  useEventListener(
+    hostElement as HTMLElementNotDerivedFromRef,
+    MarimoValueUpdateEvent.TYPE,
+    (e) => {
       if (e.detail.element === hostElement) {
         setValue(e.detail.value as T);
       }
-    };
-    // We create a mutation observer to listen for changes to the host element's attributes
-    // and update the plugin's data accordingly
+    },
+  );
+
+  // We create a mutation observer to listen for changes to the host element's attributes
+  // and update the plugin's data accordingly
+  useEffect(() => {
     const observer = new MutationObserver((mutations) => {
       const hasAttributeMutation = mutations.some(
         (mutation) =>
@@ -121,15 +126,13 @@ function PluginSlotInternal<T>(
       }
     });
 
-    // Create listeners
-    hostElement.addEventListener(marimoValueUpdateEvent, handleValue);
+    // Create listener
     observer.observe(hostElement, {
       attributes: true, // configure it to listen to attribute changes
     });
 
     return () => {
-      // Remove listeners
-      hostElement.removeEventListener(marimoValueUpdateEvent, handleValue);
+      // Remove listener
       observer.disconnect();
     };
   }, [hostElement, plugin.validator]);
@@ -139,6 +142,12 @@ function PluginSlotInternal<T>(
     setValue((prevValue) => {
       const updater = Functions.asUpdater(value);
       const nextValue = updater(prevValue);
+      // Shallow compare the values
+      // If the value hasn't changed, we don't need to send an input event
+      if (shallowCompare(nextValue, prevValue)) {
+        return nextValue;
+      }
+
       hostElement.dispatchEvent(createInputEvent(nextValue, hostElement));
       return nextValue;
     });
@@ -153,8 +162,8 @@ function PluginSlotInternal<T>(
     const methods: PluginFunctions = {};
     for (const [key, schemas] of Objects.entries(plugin.functions)) {
       const { input, output } = schemas as {
-        input: ZodSchema<unknown>;
-        output: ZodSchema<unknown>;
+        input: ZodSchema<Record<string, unknown>>;
+        output: ZodSchema<Record<string, unknown>>;
       };
       methods[key] = async (...args: unknown[]) => {
         invariant(
@@ -164,15 +173,15 @@ function PluginSlotInternal<T>(
         const objectId = getUIElementObjectId(hostElement);
         invariant(objectId, "Object ID should exist");
         const response = await FUNCTIONS_REGISTRY.request({
-          args: input.parse(args[0]),
+          args: prettyParse(input, args[0]),
           functionName: key,
           namespace: objectId,
         });
         if (response.status.code !== "ok") {
           Logger.error(response.status);
-          throw new Error(response.status.message);
+          throw new Error(response.status.message || "Unknown error");
         }
-        return output.parse(response.return_value);
+        return prettyParse(output, response.return_value);
       };
     }
 
@@ -192,18 +201,20 @@ function PluginSlotInternal<T>(
 
   // Render the plugin
   return (
-    <div className={`contents ${theme}`}>
-      <Suspense fallback={<div />}>
-        {plugin.render({
-          setValue: setValueAndSendInput,
-          value,
-          data: parsedResult.data,
-          children: childNodes,
-          host: hostElement,
-          functions: functionMethods,
-        })}
-      </Suspense>
-    </div>
+    <StyleNamespace>
+      <div className={`contents ${theme}`}>
+        <Suspense fallback={<div />}>
+          {plugin.render({
+            setValue: setValueAndSendInput,
+            value,
+            data: parsedResult.data,
+            children: childNodes,
+            host: hostElement,
+            functions: functionMethods,
+          })}
+        </Suspense>
+      </div>
+    </StyleNamespace>
   );
 }
 
@@ -329,7 +340,7 @@ export function registerReactComponent<T>(plugin: IPlugin<T, unknown>): void {
           plugin={plugin}
           ref={this.pluginRef}
           getInitialValue={() => {
-            return parseInitialValue(this);
+            return parseInitialValue(this, UIElementRegistry.INSTANCE);
           }}
         >
           {this.getChildren()}
@@ -345,6 +356,9 @@ export function registerReactComponent<T>(plugin: IPlugin<T, unknown>): void {
       invariant(shadowRoot, "Shadow root should exist");
       // If we don't support adopted stylesheets, we need to copy the styles
       if (!this.isAdoptedStyleSheetsSupported()) {
+        Logger.warn(
+          "adoptedStyleSheets not supported, copying stylesheets in a less performance way. Please consider upgrading your browser.",
+        );
         this.copyStylesFallback();
         return;
       }
@@ -375,17 +389,23 @@ export function registerReactComponent<T>(plugin: IPlugin<T, unknown>): void {
           // We need to create a new stylesheet because we can't use the same
           // stylesheet otherwise the browser will throw an error.
           const newSheet = new CSSStyleSheet();
-          newSheet.replaceSync(
-            Array.from(sheet.cssRules)
-              .map((rule) => {
-                if (rule.cssText.includes("@import")) {
-                  // @import rules are not supported in adoptedStyleSheets
-                  return "";
-                }
-                return rule.cssText;
-              })
-              .join("\n"),
-          );
+          try {
+            newSheet.replaceSync(
+              Array.from(sheet.cssRules)
+                .map((rule) => {
+                  if (rule.cssText.includes("@import")) {
+                    // @import rules are not supported in adoptedStyleSheets
+                    return "";
+                  }
+                  return rule.cssText;
+                })
+                .join("\n"),
+            );
+          } catch {
+            // It is possible that the stylesheet is not accessible due to CORS
+            // We can ignore this error
+          }
+
           styleSheetCache.set(sheetUniqueKey, newSheet);
         }
       }
@@ -414,9 +434,16 @@ export function registerReactComponent<T>(plugin: IPlugin<T, unknown>): void {
         }
 
         const style = document.createElement("style");
-        style.textContent = Array.from(sheet.cssRules)
-          .map((rule) => rule.cssText)
-          .join("\n");
+        try {
+          style.textContent = Array.from(sheet.cssRules)
+            .map((rule) => rule.cssText)
+            .join("\n");
+        } catch {
+          // It is possible that the stylesheet is not accessible due to CORS
+          // We can ignore this error
+          return [];
+        }
+
         return [style];
       });
 
@@ -441,11 +468,19 @@ function shouldCopyStyleSheet(sheet: CSSStyleSheet): boolean {
     return false;
   }
 
-  if (isStaticNotebook()) {
-    return sheet.href.startsWith(getStaticNotebookAssetUrl());
+  // Must end with .css
+  if (!sheet.href.endsWith(".css")) {
+    return false;
   }
 
-  if (sheet.href.startsWith("https://cdn.jsdelivr.net/npm/@marimo-team/")) {
+  if (
+    sheet.href.includes("127.0.0.1") &&
+    (process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development")
+  ) {
+    return true;
+  }
+
+  if (sheet.href.includes("/@marimo-team/")) {
     return true;
   }
 
@@ -463,4 +498,15 @@ export function isCustomMarimoElement(
   }
 
   return "__type__" in element && element.__type__ === customElementLocator;
+}
+
+function prettyParse<T>(schema: ZodSchema<T>, data: unknown): T {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    Logger.log("Failed to parse data", data, result.error);
+    throw new Error(
+      result.error.errors.map((e) => `${e.path}: ${e.message}`).join("\n"),
+    );
+  }
+  return result.data;
 }

@@ -1,10 +1,11 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import type { Meta, StoryObj } from "@storybook/react";
-import { Cell, CellProps } from "../components/editor/Cell";
+import { Cell, type CellProps } from "../components/editor/Cell";
 import { TooltipProvider } from "../components/ui/tooltip";
-import { CellId } from "../core/cells/ids";
+import type { CellId } from "../core/cells/ids";
 import { Logger } from "@/utils/Logger";
-import { Milliseconds, Seconds } from "@/utils/time";
+import type { Milliseconds, Seconds } from "@/utils/time";
+import { defaultUserConfig } from "@/core/config/config-schema";
 
 const meta: Meta<typeof Cell> = {
   title: "Cell",
@@ -27,17 +28,24 @@ const props: CellProps = {
   interrupted: false,
   errored: false,
   stopped: false,
+  staleInputs: false,
   updateCellCode: Logger.log,
   prepareForRun: Logger.log,
   runStartTimestamp: 0 as Seconds,
   runElapsedTimeMs: 10 as Milliseconds,
+  lastRunStartTimestamp: 0 as Seconds,
   serializedEditorState: null,
   mode: "edit",
   name: "cell_1",
   appClosed: false,
-  showDeleteButton: true,
+  canDelete: true,
   allowFocus: false,
   debuggerActive: false,
+  isCollapsed: false,
+  collapseCount: 0,
+  outline: null,
+  collapseCell: Logger.log,
+  expandCell: Logger.log,
   createNewCell: Logger.log,
   deleteCell: Logger.log,
   focusCell: Logger.log,
@@ -48,33 +56,12 @@ const props: CellProps = {
   updateCellConfig: Logger.log,
   setStdinResponse: Logger.log,
   clearSerializedEditorState: Logger.log,
-  config: {},
-  userConfig: {
-    completion: {
-      activate_on_typing: true,
-      copilot: false,
-    },
-    save: {
-      autosave: "off",
-      autosave_delay: 1000,
-      format_on_save: false,
-    },
-    display: {
-      theme: "light",
-      code_editor_font_size: 14,
-      cell_output: "above",
-    },
-    runtime: {
-      auto_instantiate: true,
-    },
-    keymap: {
-      preset: "default",
-    },
-    formatting: {
-      line_length: 79,
-    },
-    experimental: {},
+  canMoveX: false,
+  config: {
+    hide_code: false,
+    disabled: false,
   },
+  userConfig: defaultUserConfig(),
 };
 
 export const Primary: Story = {
@@ -196,6 +183,7 @@ export const Disabled: Story = {
           runElapsedTimeMs={20 as Milliseconds}
           config={{
             disabled: true,
+            hide_code: false,
           }}
           output={{
             channel: "output",
@@ -236,7 +224,8 @@ export const StaleStatus: Story = {
         <Cell
           {...props}
           runElapsedTimeMs={20 as Milliseconds}
-          status="stale"
+          status="disabled-transitively"
+          staleInputs={true}
           output={{
             channel: "output",
             data: "This data is stale because a parent is disabled",
@@ -256,7 +245,8 @@ export const StaleAndEditedStatus: Story = {
         <Cell
           {...props}
           runElapsedTimeMs={20 as Milliseconds}
-          status="stale"
+          status="disabled-transitively"
+          staleInputs={true}
           output={{
             channel: "output",
             data: "This data is stale because a parent is disabled, but this cell has been edited since.",
@@ -278,8 +268,10 @@ export const DisabledAndStaleStatus: Story = {
           runElapsedTimeMs={20 as Milliseconds}
           config={{
             disabled: true,
+            hide_code: false,
           }}
-          status="stale"
+          status="disabled-transitively"
+          staleInputs={true}
           output={{
             channel: "output",
             data: "<span class='markdown'><h1>Layout</h1>\n<p><code>marimo</code> provides functions to help you lay out your output, such as\nin rows and columns, accordions, tabs, and callouts. This tutorial\nshows some examples.</p></span>",

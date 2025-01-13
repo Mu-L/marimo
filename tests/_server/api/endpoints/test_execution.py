@@ -1,14 +1,18 @@
 # Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
 
+from typing import TYPE_CHECKING
 
-from starlette.testclient import TestClient
+from tests._server.conftest import get_session_manager
+from tests._server.mocks import token_header, with_read_session, with_session
 
-from tests._server.mocks import with_read_session, with_session
+if TYPE_CHECKING:
+    from starlette.testclient import TestClient
 
 SESSION_ID = "session-123"
 HEADERS = {
     "Marimo-Session-Id": SESSION_ID,
-    "Marimo-Server-Token": "fake-token",
+    **token_header("fake-token"),
 }
 
 
@@ -37,6 +41,23 @@ class TestExecutionRoutes_EditMode:
             json={
                 "object_ids": ["ui-element-1", "ui-element-2"],
                 "values": ["value1", "value2"],
+                "auto_run": True,
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == "application/json"
+        assert "success" in response.json()
+
+    @staticmethod
+    @with_session(SESSION_ID)
+    def test_instantiate_autorun_false(client: TestClient) -> None:
+        response = client.post(
+            "/api/kernel/instantiate",
+            headers=HEADERS,
+            json={
+                "object_ids": ["ui-element-1", "ui-element-2"],
+                "values": ["value1", "value2"],
+                "auto_run": False,
             },
         )
         assert response.status_code == 200, response.text
@@ -79,10 +100,10 @@ class TestExecutionRoutes_EditMode:
         assert response.status_code == 200, response.text
         assert response.headers["content-type"] == "application/json"
         assert "success" in response.json()
-        server_token: str = client.app.state.session_manager.server_token  # type: ignore  # noqa: E501
+        auth_token = get_session_manager(client).auth_token
         client.post(
             "/api/kernel/shutdown",
-            headers={"Marimo-Server-Token": server_token},
+            headers=token_header(auth_token),
         )
 
     @staticmethod
@@ -99,6 +120,40 @@ class TestExecutionRoutes_EditMode:
         assert response.status_code == 200, response.text
         assert response.headers["content-type"] == "application/json"
         assert "success" in response.json()
+
+    @staticmethod
+    @with_session(SESSION_ID)
+    def test_run_scratchpad(client: TestClient) -> None:
+        response = client.post(
+            "/api/kernel/scratchpad/run",
+            headers=HEADERS,
+            json={"code": "print('Hello, scratchpad')"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == "application/json"
+        assert "success" in response.json()
+
+    @staticmethod
+    @with_session(SESSION_ID)
+    def test_takeover_no_file_key(client: TestClient) -> None:
+        response = client.post(
+            "/api/kernel/takeover",
+            headers=HEADERS,
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == "application/json"
+        assert response.json()["status"] == "ok"
+
+    @staticmethod
+    @with_session(SESSION_ID)
+    def test_takeover_file_key(client: TestClient) -> None:
+        response = client.post(
+            "/api/kernel/takeover?file=test.py",
+            headers=HEADERS,
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == "application/json"
+        assert response.json()["status"] == "ok"
 
 
 class TestExecutionRoutes_RunMode:
@@ -126,6 +181,23 @@ class TestExecutionRoutes_RunMode:
             json={
                 "object_ids": ["ui-element-1", "ui-element-2"],
                 "values": ["value1", "value2"],
+                "auto_run": True,
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"] == "application/json"
+        assert "success" in response.json()
+
+    @staticmethod
+    @with_read_session(SESSION_ID)
+    def test_instantiate_autorun_false(client: TestClient) -> None:
+        response = client.post(
+            "/api/kernel/instantiate",
+            headers=HEADERS,
+            json={
+                "object_ids": ["ui-element-1", "ui-element-2"],
+                "values": ["value1", "value2"],
+                "auto_run": False,
             },
         )
         assert response.status_code == 200, response.text
@@ -153,13 +225,13 @@ class TestExecutionRoutes_RunMode:
     @with_read_session(SESSION_ID)
     def test_interrupt(client: TestClient) -> None:
         response = client.post("/api/kernel/interrupt", headers=HEADERS)
-        assert response.status_code == 403, response.text
+        assert response.status_code == 401, response.text
 
     @staticmethod
     @with_read_session(SESSION_ID)
     def test_restart_session(client: TestClient) -> None:
         response = client.post("/api/kernel/restart_session", headers=HEADERS)
-        assert response.status_code == 403, response.text
+        assert response.status_code == 401, response.text
 
     @staticmethod
     @with_read_session(SESSION_ID)
@@ -172,4 +244,20 @@ class TestExecutionRoutes_RunMode:
                 "codes": ["print('Hello, cell-1')", "print('Hello, cell-2')"],
             },
         )
-        assert response.status_code == 403, response.text
+        assert response.status_code == 401, response.text
+
+    @staticmethod
+    @with_read_session(SESSION_ID)
+    def test_run_scratchpad(client: TestClient) -> None:
+        response = client.post(
+            "/api/kernel/scratchpad/run",
+            headers=HEADERS,
+            json={"code": "print('Hello, scratchpad')"},
+        )
+        assert response.status_code == 401, response.text
+
+    @staticmethod
+    @with_read_session(SESSION_ID)
+    def test_takeover_no_file_key(client: TestClient) -> None:
+        response = client.post("/api/kernel/takeover", headers=HEADERS)
+        assert response.status_code == 401, response.text

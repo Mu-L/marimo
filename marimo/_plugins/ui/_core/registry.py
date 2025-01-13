@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import sys
 import weakref
-from typing import Any, Dict, Iterable, Mapping, TypeVar, Union
+from typing import Any, Dict, Iterable, Mapping, Optional, TypeVar, Union
+
+from marimo._runtime.context.types import ContextNotInitializedError
 
 if sys.version_info < (3, 10):
     from typing_extensions import TypeAlias
@@ -37,15 +39,15 @@ class UIElementRegistry:
         object_id: UIElementId,
         ui_element: UIElement[Any, Any],
     ) -> None:
-        kernel = get_context().kernel
+        execution_context = get_context().execution_context
         if object_id in self._objects:
             # on cell re-run, a UI element may be (re)-registered before
             # its destructor was called, so manually delete the old element
             # here
             self.delete(object_id, id(self._objects[object_id]))
         self._objects[object_id] = weakref.ref(ui_element)
-        assert kernel.execution_context is not None
-        self._constructing_cells[object_id] = kernel.execution_context.cell_id
+        assert execution_context is not None
+        self._constructing_cells[object_id] = execution_context.cell_id
         # bindings must be lazily registered, since there aren't any
         # bindings at UIElement object creation time
         if object_id in self._bindings:
@@ -93,20 +95,38 @@ class UIElementRegistry:
                 bindings.add(name)
         return bindings
 
-    def _register_bindings(self, object_id: UIElementId) -> None:
-        kernel = get_context().kernel
-        self._bindings[object_id] = self._find_bindings_in_namespace(
-            object_id, kernel.globals
-        )
+    def _register_bindings(
+        self, object_id: UIElementId, glbls: Optional[dict[str, Any]] = None
+    ) -> None:
+        from marimo._runtime.context.kernel_context import KernelRuntimeContext
+
+        ctx = get_context()
+        if isinstance(ctx, KernelRuntimeContext) or glbls is not None:
+            if glbls is None:
+                glbls = ctx.globals
+            self._bindings[object_id] = self._find_bindings_in_namespace(
+                object_id, glbls
+            )
+
+    def register_scope(
+        self, glbls: dict[str, Any], defs: Optional[set[str]] = None
+    ) -> None:
+        if defs is None:
+            defs = set(glbls.keys())
+        for binding in defs:
+            lookup = glbls.get(binding, None)
+            if isinstance(lookup, UIElement):
+                self._register_bindings(lookup._id, glbls)
+
+    def lookup(self, name: str) -> Optional[UIElement[Any, Any]]:
+        for object_id, bindings in self._bindings.items():
+            if name in bindings:
+                return self.get_object(object_id)
+        return None
 
     def get_object(self, object_id: UIElementId) -> UIElement[Any, Any]:
         if object_id not in self._objects:
             raise KeyError(f"UIElement with id {object_id} not found")
-        # UI elements are only updated if a global is bound to it. This ensures
-        # that the UI element update triggers reactivity, but also means that
-        # elements stored as, say, attributes on an object won't be updated.
-        if not self.bound_names(object_id):
-            raise NameError(f"UIElement with id {object_id} has no bindings")
         obj = self._objects[object_id]()
         assert obj is not None
         return obj
@@ -151,6 +171,10 @@ class UIElementRegistry:
             return
 
         ui_element = self._objects[object_id]()
+        # We guard against UIElement's destructor racing against
+        # registration of another element when a cell re-runs by checking
+        # the Python object id. This isn't perfect because python ids can
+        # be reused ...
         registered_python_id = (
             id(ui_element) if ui_element is not None else None
         )
@@ -158,14 +182,17 @@ class UIElementRegistry:
             registered_python_id is not None
             and registered_python_id != python_id
         ):
-            # guards against UIElement's destructor racing against
-            # registration of another element when a cell re-runs
             return
 
-        if ui_element is not None:
-            del self._objects[object_id]
-            ui_element._dispose()
+        try:
+            ctx = get_context()
+        except ContextNotInitializedError:
+            pass
+        else:
+            ctx.function_registry.delete(namespace=object_id)
+
         if object_id in self._bindings:
             del self._bindings[object_id]
         if object_id in self._constructing_cells:
             del self._constructing_cells[object_id]
+        del self._objects[object_id]

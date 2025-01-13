@@ -2,7 +2,8 @@
 import { downloadCellOutput } from "@/components/export/export-output-button";
 import { Switch } from "@/components/ui/switch";
 import { formatEditorViews } from "@/core/codemirror/format";
-import { useCellActions } from "@/core/cells/cells";
+import { toggleToLanguage } from "@/core/codemirror/language/commands";
+import { hasOnlyOneCellAtom, useCellActions } from "@/core/cells/cells";
 import {
   ImageIcon,
   Code2Icon,
@@ -19,47 +20,81 @@ import {
   EyeIcon,
   EyeOffIcon,
   SparklesIcon,
+  DatabaseIcon,
+  Columns2Icon,
+  XCircleIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from "lucide-react";
-import { ActionButton } from "./types";
+import type { ActionButton } from "./types";
 import { MultiIcon } from "@/components/icons/multi-icon";
-import { CellConfig, CellData, CellStatus } from "@/core/cells/types";
-import { CellId } from "@/core/cells/ids";
+import type { CellData } from "@/core/cells/types";
+import type { CellId } from "@/core/cells/ids";
 import { saveCellConfig } from "@/core/network/requests";
-import { EditorView } from "@codemirror/view";
+import type { EditorView } from "@codemirror/view";
 import { useRunCell } from "../cell/useRunCells";
 import { NameCellInput } from "./name-cell-input";
-import { getFeatureFlag } from "@/core/config/feature-flag";
-import { useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { aiCompletionCellAtom } from "@/core/ai/state";
+import { useImperativeModal } from "@/components/modal/ImperativeModal";
+import {
+  DialogContent,
+  DialogTitle,
+  DialogHeader,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { MarkdownIcon, PythonIcon } from "../cell/code/icons";
+import {
+  aiEnabledAtom,
+  appWidthAtom,
+  autoInstantiateAtom,
+} from "@/core/config/config";
+import { useDeleteCellCallback } from "../cell/useDeleteCell";
+import { maybeAddMarimoImport } from "@/core/cells/add-missing-import";
+import type { CellConfig, RuntimeState } from "@/core/network/types";
+import { kioskModeAtom } from "@/core/mode";
+import { switchLanguage } from "@/core/codemirror/language/extension";
 
 export interface CellActionButtonProps
   extends Pick<CellData, "name" | "config"> {
   cellId: CellId;
-  status: CellStatus;
-  editorView: EditorView | null;
+  status: RuntimeState;
   hasOutput: boolean;
+  getEditorView: () => EditorView | null;
 }
 
-export function useCellActionButtons({
-  cellId,
-  config,
-  editorView,
-  name,
-  hasOutput,
-  status,
-}: CellActionButtonProps) {
+interface Props {
+  cell: CellActionButtonProps | null;
+}
+
+export function useCellActionButtons({ cell }: Props) {
   const {
     createNewCell: createCell,
     updateCellConfig,
     updateCellCode,
     updateCellName,
-    deleteCell,
     moveCell,
     sendToTop,
     sendToBottom,
+    addColumnBreakpoint,
+    clearCellOutput,
   } = useCellActions();
-  const runCell = useRunCell(cellId);
+  const runCell = useRunCell(cell?.cellId);
+  const hasOnlyOneCell = useAtomValue(hasOnlyOneCellAtom);
+  const canDelete = !hasOnlyOneCell;
+  const deleteCell = useDeleteCellCallback();
+  const { openModal } = useImperativeModal();
   const setAiCompletionCell = useSetAtom(aiCompletionCellAtom);
+  const aiEnabled = useAtomValue(aiEnabledAtom);
+  const autoInstantiate = useAtomValue(autoInstantiateAtom);
+  const kioskMode = useAtomValue(kioskModeAtom);
+  const appWidth = useAtomValue(appWidthAtom);
+
+  if (!cell || kioskMode) {
+    return [];
+  }
+
+  const { cellId, config, getEditorView, name, hasOutput, status } = cell;
 
   const toggleDisabled = async () => {
     const newConfig = { disabled: !config.disabled };
@@ -68,10 +103,10 @@ export function useCellActionButtons({
   };
 
   const toggleHideCode = async () => {
-    const newConfig: CellConfig = { hide_code: !config.hide_code };
+    const newConfig: Partial<CellConfig> = { hide_code: !config.hide_code };
     await saveCellConfig({ configs: { [cellId]: newConfig } });
     updateCellConfig({ cellId, config: newConfig });
-
+    const editorView = getEditorView();
     // If we're hiding the code, we should blur the editor
     // otherwise, we should focus it
     if (editorView) {
@@ -94,9 +129,35 @@ export function useCellActionButtons({
           evt?.stopPropagation();
           evt?.preventDefault();
         },
+        handleHeadless: () => {
+          openModal(
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Rename cell</DialogTitle>
+              </DialogHeader>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="cell-name">Cell name</Label>
+                <NameCellInput
+                  placeholder={"cell name"}
+                  value={name}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openModal(null);
+                    }
+                  }}
+                  onChange={(newName) =>
+                    updateCellName({ cellId, name: newName })
+                  }
+                />
+              </div>
+            </DialogContent>,
+          );
+        },
         rightElement: (
           <NameCellInput
-            placeholder={`cell_${cellId}`}
+            placeholder={"cell name"}
             value={name}
             onChange={(newName) => updateCellName({ cellId, name: newName })}
           />
@@ -110,16 +171,16 @@ export function useCellActionButtons({
           status === "running" ||
           status === "queued" ||
           status === "disabled-transitively" ||
-          config.disabled === true,
+          config.disabled,
         handle: () => runCell(),
       },
       {
         icon: <SparklesIcon size={13} strokeWidth={1.5} />,
         label: "AI completion",
-        hidden: !getFeatureFlag("ai"),
+        hidden: !aiEnabled,
         handle: () => {
           setAiCompletionCell((current) =>
-            current === cellId ? null : cellId,
+            current?.cellId === cellId ? null : { cellId },
           );
         },
         hotkey: "cell.aiCompletion",
@@ -135,6 +196,7 @@ export function useCellActionButtons({
         label: "Format cell",
         hotkey: "cell.format",
         handle: () => {
+          const editorView = getEditorView();
           if (!editorView) {
             return;
           }
@@ -147,25 +209,75 @@ export function useCellActionButtons({
         ) : (
           <EyeOffIcon size={13} strokeWidth={1.5} />
         ),
-        label: config.hide_code === true ? "Show code" : "Hide code",
+        label: config.hide_code ? "Show code" : "Hide code",
         handle: toggleHideCode,
         hotkey: "cell.hideCode",
       },
       {
         icon: config.disabled ? (
-          <ZapIcon size={13} strokeWidth={1.5} />
-        ) : (
           <ZapOffIcon size={13} strokeWidth={1.5} />
+        ) : (
+          <ZapIcon size={13} strokeWidth={1.5} />
         ),
-        label: config.disabled === true ? "Enable cell" : "Disable cell",
+        label: "Reactive execution",
         rightElement: (
           <Switch
+            data-testid="cell-disable-switch"
             checked={!config.disabled}
             size="sm"
             onCheckedChange={toggleDisabled}
           />
         ),
         handle: toggleDisabled,
+      },
+      {
+        icon: <XCircleIcon size={13} strokeWidth={1.5} />,
+        label: "Clear output",
+        hidden: !hasOutput,
+        handle: () => {
+          clearCellOutput({ cellId });
+        },
+      },
+    ],
+
+    // View as
+    [
+      {
+        icon: <MarkdownIcon />,
+        label: "Convert to Markdown",
+        hotkey: "cell.viewAsMarkdown",
+        handle: () => {
+          const editorView = getEditorView();
+          if (!editorView) {
+            return;
+          }
+          maybeAddMarimoImport(autoInstantiate, createCell);
+          switchLanguage(editorView, "markdown", { keepCodeAsIs: true });
+        },
+      },
+      {
+        icon: <DatabaseIcon size={13} strokeWidth={1.5} />,
+        label: "Convert to SQL",
+        handle: () => {
+          const editorView = getEditorView();
+          if (!editorView) {
+            return;
+          }
+          maybeAddMarimoImport(autoInstantiate, createCell);
+          switchLanguage(editorView, "sql", { keepCodeAsIs: true });
+        },
+      },
+      {
+        icon: <PythonIcon />,
+        label: "Toggle as Python",
+        handle: () => {
+          const editorView = getEditorView();
+          if (!editorView) {
+            return;
+          }
+          maybeAddMarimoImport(autoInstantiate, createCell);
+          toggleToLanguage(editorView, "python", { force: true });
+        },
       },
     ],
 
@@ -206,6 +318,20 @@ export function useCellActionButtons({
         handle: () => moveCell({ cellId, before: false }),
       },
       {
+        icon: <ChevronLeftIcon size={13} strokeWidth={1.5} />,
+        label: "Move cell left",
+        hotkey: "cell.moveLeft",
+        handle: () => moveCell({ cellId, direction: "left" }),
+        hidden: appWidth !== "columns",
+      },
+      {
+        icon: <ChevronRightIcon size={13} strokeWidth={1.5} />,
+        label: "Move cell right",
+        hotkey: "cell.moveRight",
+        handle: () => moveCell({ cellId, direction: "right" }),
+        hidden: appWidth !== "columns",
+      },
+      {
         icon: <ChevronsUpIcon size={13} strokeWidth={1.5} />,
         label: "Send to top",
         hotkey: "cell.sendToTop",
@@ -217,15 +343,25 @@ export function useCellActionButtons({
         hotkey: "cell.sendToBottom",
         handle: () => sendToBottom({ cellId }),
       },
+      {
+        icon: <Columns2Icon size={13} strokeWidth={1.5} />,
+        label: "Break into new column",
+        hotkey: "cell.addColumnBreakpoint",
+        hidden: appWidth !== "columns",
+        handle: () => addColumnBreakpoint({ cellId }),
+      },
     ],
 
     // Delete
     [
       {
         label: "Delete",
+        hidden: !canDelete,
         variant: "danger",
         icon: <Trash2Icon size={13} strokeWidth={1.5} />,
-        handle: () => deleteCell({ cellId }),
+        handle: () => {
+          deleteCell({ cellId });
+        },
       },
     ],
   ];

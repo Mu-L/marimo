@@ -6,10 +6,10 @@ import type {
   sendDeleteFileOrFolder,
   sendRenameFileOrFolder,
 } from "@/core/network/requests";
-import { FileInfo, FileOperationResponse } from "@/core/network/types";
+import type { FileInfo, FileUpdateResponse } from "@/core/network/types";
 import { prettyError } from "@/utils/errors";
 import { Functions } from "@/utils/functions";
-import { FilePath, PathBuilder } from "@/utils/paths";
+import { type FilePath, PathBuilder } from "@/utils/paths";
 import { SimpleTree } from "react-arborist";
 
 export class RequestingTree {
@@ -34,7 +34,7 @@ export class RequestingTree {
       try {
         const data = await this.callbacks.listFiles({ path: this.rootPath });
         this.delegate = new SimpleTree(data.files);
-        this.rootPath = data.root;
+        this.rootPath = data.root as FilePath;
         this.path = PathBuilder.guessDeliminator(data.root);
       } catch (error) {
         toast({
@@ -74,7 +74,7 @@ export class RequestingTree {
     if (!node) {
       return;
     }
-    const currentPath = node.data.path;
+    const currentPath = node.data.path as FilePath;
     const newPath = this.path.join(this.path.dirname(currentPath), name);
     await this.callbacks
       .renameFileOrFolder({
@@ -84,11 +84,13 @@ export class RequestingTree {
       .then(this.handleResponse);
     this.delegate.update({ id, changes: { name, path: newPath } });
     this.onChange(this.delegate.data);
+    // Rename all of its children
+    await this.refreshAll([newPath]);
   }
 
   async move(fromIds: string[], parentId: string | null): Promise<void> {
     const parentPath = parentId
-      ? this.delegate.find(parentId)?.data.path ?? parentId
+      ? (this.delegate.find(parentId)?.data.path ?? parentId)
       : this.rootPath;
 
     await Promise.all(
@@ -100,7 +102,7 @@ export class RequestingTree {
         }
         const newPath = this.path.join(
           parentPath,
-          this.path.basename(node.data.path),
+          this.path.basename(node.data.path as FilePath),
         );
         this.delegate.update({ id, changes: { path: newPath } });
         return this.callbacks
@@ -116,6 +118,59 @@ export class RequestingTree {
 
     // Refresh the parent folder
     await this.refreshAll([parentPath]);
+  }
+
+  async createFile(name: string, parentId: string | null): Promise<void> {
+    const parentPath = parentId
+      ? (this.delegate.find(parentId)?.data.path ?? parentId)
+      : this.rootPath;
+    const newFile = await this.callbacks
+      .createFileOrFolder({ path: parentPath, type: "file", name: name })
+      .then(this.handleResponse);
+    if (!newFile?.info) {
+      return;
+    }
+    this.delegate.create({
+      parentId,
+      index: 0,
+      data: newFile.info,
+    });
+    this.onChange(this.delegate.data);
+    // Refresh the parent folder
+    await this.refreshAll([parentPath]);
+  }
+
+  async createFolder(name: string, parentId: string | null): Promise<void> {
+    const parentPath = parentId
+      ? (this.delegate.find(parentId)?.data.path ?? parentId)
+      : this.rootPath;
+    const newFolder = await this.callbacks
+      .createFileOrFolder({ path: parentPath, type: "directory", name: name })
+      .then(this.handleResponse);
+    if (!newFolder?.info) {
+      return;
+    }
+    this.delegate.create({
+      parentId,
+      index: 0,
+      data: newFolder.info,
+    });
+    this.onChange(this.delegate.data);
+    // Refresh the parent folder
+    await this.refreshAll([parentPath]);
+  }
+
+  async delete(id: string): Promise<void> {
+    const node = this.delegate.find(id);
+    if (!node) {
+      return;
+    }
+
+    await this.callbacks
+      .deleteFileOrFolder({ path: node.data.path })
+      .then(this.handleResponse);
+    this.delegate.drop({ id });
+    this.onChange(this.delegate.data);
   }
 
   refreshAll = async (ids: string[]): Promise<void> => {
@@ -146,13 +201,29 @@ export class RequestingTree {
     this.onChange(this.delegate.data);
   };
 
-  private handleResponse = (response: FileOperationResponse): void => {
+  public relativeFromRoot = (path: FilePath): FilePath => {
+    const root = withTrailingSlash(this.rootPath);
+    if (path.startsWith(root)) {
+      return path.slice(root.length) as FilePath;
+    }
+    return path;
+  };
+
+  private handleResponse = (
+    response: FileUpdateResponse,
+  ): FileUpdateResponse | null => {
     if (!response.success) {
       toast({
         title: "Failed",
         description: response.message,
       });
-      return;
+      return null;
     }
+
+    return response;
   };
+}
+
+function withTrailingSlash(path: string): string {
+  return path.endsWith("/") ? path : `${path}/`;
 }

@@ -1,6 +1,7 @@
 /* Copyright 2024 Marimo. All rights reserved. */
 import { z } from "zod";
 import { FieldOptions } from "../forms/options";
+import type { DataType } from "@/core/kernel/messages";
 
 const Schema = {
   number: z.coerce.number().describe(FieldOptions.of({ label: "Value" })),
@@ -16,7 +17,16 @@ const Schema = {
     .array(z.string())
     .min(1)
     .describe(FieldOptions.of({ label: "Value", special: "column_values" })),
-  date: z.coerce.date().describe(FieldOptions.of({ label: "Value" })),
+  date: z.coerce
+    .date()
+    .describe(FieldOptions.of({ label: "Value", special: "date" })),
+  datetime: z.coerce
+    .date()
+    .describe(FieldOptions.of({ label: "Value", special: "datetime" })),
+  time: z
+    .string()
+    .regex(/^\d{2}:\d{2}(:\d{2})?$/)
+    .describe(FieldOptions.of({ label: "Value", special: "time" })),
 };
 
 export const BOOLEAN_OPERATORS = {
@@ -24,27 +34,21 @@ export const BOOLEAN_OPERATORS = {
   is_false: [],
 };
 
-export const NUMERIC_OPERATORS = {
-  "==": [Schema.number],
-  "!=": [Schema.number],
-  ">": [Schema.number],
-  ">=": [Schema.number],
-  "<": [Schema.number],
-  "<=": [Schema.number],
+const createComparisonOperators = (schema: z.ZodType) => ({
+  "==": [schema],
+  "!=": [schema],
+  ">": [schema],
+  ">=": [schema],
+  "<": [schema],
+  "<=": [schema],
   is_nan: [],
   is_not_nan: [],
-};
+});
 
-export const DATE_OPERATORS = {
-  "==": [Schema.date],
-  "!=": [Schema.date],
-  ">": [Schema.date],
-  ">=": [Schema.date],
-  "<": [Schema.date],
-  "<=": [Schema.date],
-  is_nan: [],
-  is_not_nan: [],
-};
+export const NUMERIC_OPERATORS = createComparisonOperators(Schema.number);
+export const DATE_OPERATORS = createComparisonOperators(Schema.date);
+export const TIME_OPERATORS = createComparisonOperators(Schema.time);
+export const DATETIME_OPERATORS = createComparisonOperators(Schema.datetime);
 
 export const STRING_OPERATORS = {
   equals: [Schema.stringColumnValues],
@@ -60,47 +64,114 @@ export const ALL_OPERATORS = {
   ...BOOLEAN_OPERATORS,
   ...NUMERIC_OPERATORS,
   ...DATE_OPERATORS,
+  ...TIME_OPERATORS,
+  ...DATETIME_OPERATORS,
   ...STRING_OPERATORS,
 };
 
 export type OperatorType = keyof typeof ALL_OPERATORS;
 
-export function getOperatorForDtype(dtype: string): readonly string[] {
+function numpyTypeToDataType(type: string): DataType {
+  if (!type) {
+    return "unknown";
+  }
+
+  if (type.startsWith("int")) {
+    return "integer";
+  }
+
+  if (
+    type.startsWith("float") ||
+    type.startsWith("uint") ||
+    type.startsWith("number") ||
+    type.startsWith("complex")
+  ) {
+    return "number";
+  }
+
+  if (
+    type.startsWith("string") ||
+    type.startsWith("object") ||
+    type.startsWith("utf8")
+  ) {
+    return "string";
+  }
+
+  if (type.startsWith("datetime")) {
+    return "datetime";
+  }
+
+  if (type.startsWith("time")) {
+    return "time";
+  }
+
+  if (type.startsWith("date")) {
+    return "date";
+  }
+
+  if (type.startsWith("bool")) {
+    return "boolean";
+  }
+
+  return "unknown";
+}
+
+export function getOperatorForDtype(
+  dtype: string | undefined,
+): readonly string[] {
   if (!dtype) {
     return [];
   }
 
-  if (dtype === "bool") {
-    return Object.keys(BOOLEAN_OPERATORS);
-  } else if (dtype.startsWith("int") || dtype.startsWith("float")) {
-    return Object.keys(NUMERIC_OPERATORS);
-  } else if (dtype === "datetime64[ns]") {
-    return Object.keys(DATE_OPERATORS);
-  } else if (dtype === "object" || dtype === "string") {
-    return Object.keys(STRING_OPERATORS);
-  } else {
-    return [];
+  const dataType = numpyTypeToDataType(dtype);
+
+  switch (dataType) {
+    case "integer":
+      return Object.keys(NUMERIC_OPERATORS);
+    case "number":
+      return Object.keys(NUMERIC_OPERATORS);
+    case "string":
+      return Object.keys(STRING_OPERATORS);
+    case "date":
+      return Object.keys(DATE_OPERATORS);
+    case "datetime":
+      return Object.keys(DATETIME_OPERATORS);
+    case "time":
+      return Object.keys(TIME_OPERATORS);
+    case "boolean":
+      return Object.keys(BOOLEAN_OPERATORS);
+    case "unknown":
+      return [];
   }
 }
 
 export function getSchemaForOperator(
-  dtype: string,
+  dtype: string | undefined,
   operator: string,
 ): [z.ZodType] | [] {
   if (!dtype || !operator) {
     return [];
   }
 
-  if (dtype === "bool") {
-    return safeGet(BOOLEAN_OPERATORS, operator);
-  } else if (dtype.startsWith("int") || dtype.startsWith("float")) {
-    return safeGet(NUMERIC_OPERATORS, operator);
-  } else if (dtype === "datetime64[ns]") {
-    return safeGet(DATE_OPERATORS, operator);
-  } else if (dtype === "object" || dtype === "string") {
-    return safeGet(STRING_OPERATORS, operator);
-  } else {
-    return [];
+  const dataType = numpyTypeToDataType(dtype);
+
+  switch (dataType) {
+    case "integer":
+      return safeGet(NUMERIC_OPERATORS, operator);
+    case "number":
+      return safeGet(NUMERIC_OPERATORS, operator);
+    case "string":
+      return safeGet(STRING_OPERATORS, operator);
+    case "date":
+      return safeGet(DATE_OPERATORS, operator);
+    case "datetime":
+      return safeGet(DATETIME_OPERATORS, operator);
+    case "time":
+      return safeGet(TIME_OPERATORS, operator);
+    case "boolean":
+      return safeGet(BOOLEAN_OPERATORS, operator);
+    case "unknown":
+      return [];
   }
 }
 
@@ -108,6 +179,8 @@ export function isConditionValueValid(operator: string, value: unknown) {
   const possibleSchemas = [
     safeGet(BOOLEAN_OPERATORS, operator),
     safeGet(DATE_OPERATORS, operator),
+    safeGet(TIME_OPERATORS, operator),
+    safeGet(DATETIME_OPERATORS, operator),
     safeGet(NUMERIC_OPERATORS, operator),
     safeGet(STRING_OPERATORS, operator),
   ].flat();

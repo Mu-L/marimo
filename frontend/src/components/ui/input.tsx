@@ -4,8 +4,15 @@ import * as React from "react";
 import { cn } from "@/utils/cn";
 import { useDebounceControlledState } from "@/hooks/useDebounce";
 import { Events } from "@/utils/events";
+import {
+  NumberField,
+  type NumberFieldProps,
+} from "@/components/ui/number-field";
+import { SearchIcon, XIcon } from "lucide-react";
+import { useControllableState } from "@radix-ui/react-use-controllable-state";
 
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  rootClassName?: string;
   icon?: React.ReactNode;
   endAdornment?: React.ReactNode;
 };
@@ -19,7 +26,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     }
 
     return (
-      <div className="relative">
+      <div className={cn("relative", props.rootClassName)}>
         {icon && (
           <div className="absolute inset-y-0 left-0 flex items-center pl-[6px] pointer-events-none text-muted-foreground h-6">
             {icon}
@@ -39,7 +46,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           {...props}
         />
         {endAdornment && (
-          <div className="absolute inset-y-0 right-0 flex items-center pr-[6px] pointer-events-none text-muted-foreground h-6">
+          <div className="absolute inset-y-0 right-0 flex items-center pr-[6px] text-muted-foreground h-6">
             {endAdornment}
           </div>
         )}
@@ -54,12 +61,12 @@ export const DebouncedInput = React.forwardRef<
   InputProps & {
     value: string;
     onValueChange: (value: string) => void;
+    delay?: number;
   }
 >(({ className, onValueChange, ...props }, ref) => {
-  // Create a debounced value of 200
   const { value, onChange } = useDebounceControlledState<string>({
     initialValue: props.value,
-    delay: 200,
+    delay: props.delay,
     onChange: onValueChange,
   });
 
@@ -77,7 +84,7 @@ DebouncedInput.displayName = "DebouncedInput";
 
 export const DebouncedNumberInput = React.forwardRef<
   HTMLInputElement,
-  InputProps & {
+  NumberFieldProps & {
     value: number;
     onValueChange: (valueAsNumber: number) => void;
   }
@@ -90,16 +97,111 @@ export const DebouncedNumberInput = React.forwardRef<
   });
 
   return (
-    <Input
+    <NumberField
       ref={ref}
-      type="number"
       className={className}
       {...props}
-      onChange={(evt) => onChange(evt.target.valueAsNumber)}
+      onChange={onChange}
       value={value}
     />
   );
 });
 DebouncedNumberInput.displayName = "DebouncedNumberInput";
+
+export const SearchInput = React.forwardRef<
+  HTMLInputElement,
+  InputProps & {
+    rootClassName?: string;
+    icon?: React.ReactNode | null;
+    clearable?: boolean;
+  }
+>(
+  (
+    {
+      className,
+      rootClassName,
+      icon = <SearchIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />,
+      clearable = true,
+      ...props
+    },
+    ref,
+  ) => {
+    const id = React.useId();
+    return (
+      <div className={cn("flex items-center border-b px-3", rootClassName)}>
+        {icon}
+        <input
+          id={id}
+          ref={ref}
+          className={cn(
+            "placeholder:text-foreground-muted flex h-7 m-1 w-full rounded-md bg-transparent py-3 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50",
+            className,
+          )}
+          {...props}
+        />
+        {clearable && props.value && (
+          <span
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const input = document.getElementById(id);
+              if (input && input instanceof HTMLInputElement) {
+                input.focus();
+                input.value = "";
+                props.onChange?.({
+                  ...e,
+                  target: input,
+                  currentTarget: input,
+                  type: "change",
+                } as React.ChangeEvent<HTMLInputElement>);
+              }
+            }}
+          >
+            <XIcon className="h-4 w-4 opacity-50 hover:opacity-90" />
+          </span>
+        )}
+      </div>
+    );
+  },
+);
+SearchInput.displayName = "SearchInput";
+
+export const OnBlurredInput = React.forwardRef<
+  HTMLInputElement,
+  InputProps & {
+    value: string;
+    onValueChange: (value: string) => void;
+  }
+>(({ className, onValueChange, ...props }, ref) => {
+  const [internalValue, setInternalValue] = React.useState(props.value);
+
+  const [value, setValue] = useControllableState<string>({
+    prop: props.value,
+    defaultProp: internalValue,
+    onChange: onValueChange,
+  });
+
+  React.useEffect(() => {
+    setInternalValue(value || "");
+  }, [value]);
+
+  return (
+    <Input
+      ref={ref}
+      className={className}
+      {...props}
+      value={internalValue}
+      onChange={(event) => setInternalValue(event.target.value)}
+      onBlur={() => setValue(internalValue || "")}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") {
+          return;
+        }
+        setValue(internalValue || "");
+      }}
+    />
+  );
+});
+OnBlurredInput.displayName = "OnBlurredInput";
 
 export { Input };

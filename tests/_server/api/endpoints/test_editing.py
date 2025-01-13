@@ -1,14 +1,17 @@
 # Copyright 2024 Marimo. All rights reserved.
+from __future__ import annotations
 
+from typing import TYPE_CHECKING
 
-from starlette.testclient import TestClient
+from tests._server.mocks import token_header, with_session
 
-from tests._server.mocks import with_session
+if TYPE_CHECKING:
+    from starlette.testclient import TestClient
 
 SESSION_ID = "session-123"
 HEADERS = {
     "Marimo-Session-Id": SESSION_ID,
-    "Marimo-Server-Token": "fake-token",
+    **token_header("fake-token"),
 }
 
 
@@ -59,6 +62,21 @@ def test_format_cell(client: TestClient) -> None:
     formatted_codes = response.json().get("codes", {})
     assert "cell-123" in formatted_codes
     assert formatted_codes["cell-123"] == "def foo():\n    return 1"
+
+
+@with_session(SESSION_ID)
+def test_install_missing_packages(client: TestClient) -> None:
+    response = client.post(
+        "/api/kernel/install_missing_packages",
+        headers=HEADERS,
+        json={
+            "manager": "pip",
+            "versions": {},
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/json"
+    assert "success" in response.json()
 
 
 @with_session(SESSION_ID)

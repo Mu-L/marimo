@@ -285,7 +285,7 @@ def __(mo):
         ## 4. Running notebooks as apps
 
         marimo notebooks can double as apps. Click the app window icon in the
-        bottom-left to see this notebook in "app view."
+        bottom-right to see this notebook in "app view."
 
         Serve a notebook as an app with `marimo run` at the command-line.
         Of course, you can use marimo just to level-up your
@@ -337,7 +337,11 @@ def __(mo):
         - `markdown`: how to write markdown, with interpolated values and
            LaTeX
         - `plots`: how plotting works in marimo
+        - `sql`: how to use SQL
+        - `layout`: layout elements in marimo
         - `fileformat`: how marimo's file format works
+        - `markdown-format`: for using `.md` files in marimo
+        - `for-jupyter-users`: if you are coming from Jupyter
 
         Start a tutorial with `marimo tutorial`; for example,
 
@@ -459,8 +463,8 @@ def __():
         ),
         "Code Formatting": (
             """
-            If you have [black](https://github.com/psf/black) installed, you can format a cell with
-            the keyboard shortcut `Ctrl/Cmd+b`.
+            If you have [ruff](https://github.com/astral-sh/ruff) installed,
+            you can format a cell with the keyboard shortcut `Ctrl/Cmd+b`.
             """
         ),
         "Command Palette": (
